@@ -4,7 +4,7 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
   <meta name="theme-color" content="#0f172a" />
-  <title>Polkuopas – kehitysversio 4</title>
+  <title>Polkuopas – kehitysversio 5</title>
   <style>
     :root {
       --bg: #0f172a;
@@ -214,6 +214,18 @@
       margin-top: 8px;
     }
 
+    select {
+      width: 100%;
+      margin-top: 8px;
+      border-radius: 14px;
+      border: 1px solid #64748b;
+      background: #e2e8f0;
+      color: #0f172a;
+      padding: 12px;
+      font-size: 1rem;
+      font-weight: 650;
+    }
+
     .checkrow {
       display: flex;
       align-items: center;
@@ -263,7 +275,7 @@
 <body>
   <main>
     <header>
-      <h1>Polkuopas – kehitysversio 4</h1>
+      <h1>Polkuopas – kehitysversio 5</h1>
       <p>
         Kehitysversio käyttää puhelimen kameraa ja arvioi jatkuvan kulkukäytävän keskilinjaa
         ja antaa vasen/oikea-stereoäänimerkin, jos havaittu tie tai polku ei ole keskellä.
@@ -315,6 +327,25 @@
           </div>
 
           <button id="audioTestButton" class="secondary" style="width:100%;">Äänitesti: vasen, sitten oikea</button>
+
+          <label for="fpsSelect">
+            Analyysinopeus
+            <select id="fpsSelect">
+              <option value="5">Virransäästö: 5 FPS</option>
+              <option value="10" selected>Normaali: 10 FPS</option>
+              <option value="15">Nopea: 15 FPS</option>
+              <option value="30">Kehittäjä: 30 FPS</option>
+            </select>
+          </label>
+
+          <label for="cameraQualitySelect">
+            Kameran tarkkuus
+            <select id="cameraQualitySelect">
+              <option value="low">Matala: 480 × 270</option>
+              <option value="normal" selected>Normaali: 640 × 360</option>
+              <option value="high">Korkea: 1280 × 720</option>
+            </select>
+          </label>
 
           <label for="threshold">
             Ohjauskynnys: <span id="thresholdValue">0.14</span>
@@ -370,6 +401,8 @@
     const confidenceBar = document.getElementById("confidenceBar");
     const voiceOverLiveRegion = document.getElementById("voiceOverLiveRegion");
 
+    const fpsSelect = document.getElementById("fpsSelect");
+    const cameraQualitySelect = document.getElementById("cameraQualitySelect");
     const thresholdInput = document.getElementById("threshold");
     const thresholdValue = document.getElementById("thresholdValue");
     const beepsEnabled = document.getElementById("beepsEnabled");
@@ -380,6 +413,7 @@
     let animationId = null;
     let audioCtx = null;
     let lastBeepMs = 0;
+    let lastAnalysisMs = 0;
     let running = false;
     let history = [];
     let currentVisualDirection = "";
@@ -502,6 +536,25 @@
       osc.stop(now + 0.12);
     }
 
+    function getCameraConstraints() {
+      const quality = cameraQualitySelect ? cameraQualitySelect.value : "normal";
+
+      if (quality === "low") {
+        return { width: { ideal: 480 }, height: { ideal: 270 } };
+      }
+
+      if (quality === "high") {
+        return { width: { ideal: 1280 }, height: { ideal: 720 } };
+      }
+
+      return { width: { ideal: 640 }, height: { ideal: 360 } };
+    }
+
+    function getTargetFrameIntervalMs() {
+      const fps = Number(fpsSelect ? fpsSelect.value : 10);
+      return 1000 / Math.max(1, fps);
+    }
+
     async function startCamera() {
       try {
         ensureAudioContext();
@@ -513,11 +566,12 @@
 
         setStatus("Pyydetään kameran käyttöoikeutta...");
 
+        const cameraConstraints = getCameraConstraints();
+
         stream = await navigator.mediaDevices.getUserMedia({
           video: {
             facingMode: { ideal: "environment" },
-            width: { ideal: 1280 },
-            height: { ideal: 720 }
+            ...cameraConstraints
           },
           audio: false
         });
@@ -526,6 +580,7 @@
         await video.play();
 
         placeholder.style.display = "none";
+        lastAnalysisMs = 0;
         running = true;
         setDirection("-", "Kamera käynnissä. Suuntaa kamera tiehen, polkuun tai käytävään.");
         loop();
@@ -566,8 +621,20 @@
       setStatus("Mittaushistoria nollattu.");
     }
 
-    function loop() {
-      analyzeFrame();
+    function loop(timestamp) {
+      const targetInterval = getTargetFrameIntervalMs();
+
+      /*
+        requestAnimationFrame seuraa edelleen selaimen omaa piirtoajoitusta,
+        mutta varsinainen kuvantunnistus tehdään vain valitulla FPS-nopeudella.
+        Tämä pienentää CPU-kuormaa ja virrankulutusta verrattuna siihen, että
+        analyysi ajettaisiin jokaisella näytön virkistyksellä.
+      */
+      if (!lastAnalysisMs || timestamp - lastAnalysisMs >= targetInterval) {
+        analyzeFrame();
+        lastAnalysisMs = timestamp;
+      }
+
       if (running) animationId = requestAnimationFrame(loop);
     }
 
@@ -930,13 +997,14 @@
       }
 
       ctx.fillStyle = "rgba(0,0,0,0.62)";
-      ctx.fillRect(12, 12, 292, 104);
+      ctx.fillRect(12, 12, 292, 126);
       ctx.fillStyle = "white";
       ctx.font = "15px system-ui, -apple-system, sans-serif";
       ctx.fillText("Algoritmi: jatkuva käytävä v3", 24, 40);
       ctx.fillText("Poikkeama: " + smoothOffset.toFixed(2), 24, 64);
       ctx.fillText("Varmuus: " + Math.round(smoothConf * 100) + " %", 24, 88);
       ctx.fillText("Kynnys: " + Number(thresholdInput.value).toFixed(2), 24, 112);
+      ctx.fillText("FPS: " + (fpsSelect ? fpsSelect.value : "10"), 24, 136);
     }
 
     startButton.addEventListener("click", startCamera);
@@ -951,6 +1019,23 @@
 
     thresholdInput.addEventListener("input", () => {
       thresholdValue.textContent = Number(thresholdInput.value).toFixed(2);
+    });
+
+    fpsSelect.addEventListener("change", () => {
+      lastAnalysisMs = 0;
+      setStatus("Analyysinopeus muutettu: " + fpsSelect.value + " FPS.");
+    });
+
+    cameraQualitySelect.addEventListener("change", async () => {
+      if (!running) {
+        setStatus("Kameran tarkkuus muutettu. Uusi tarkkuus tulee käyttöön, kun kamera käynnistetään.");
+        return;
+      }
+
+      setStatus("Vaihdetaan kameran tarkkuutta...");
+      stopCamera();
+      await new Promise(resolve => setTimeout(resolve, 250));
+      startCamera();
     });
 
     voiceOverEnabled.addEventListener("change", () => {
