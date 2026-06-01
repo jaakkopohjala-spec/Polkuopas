@@ -1,0 +1,701 @@
+<!DOCTYPE html>
+<html lang="fi">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>PathGuide – Polun Seuranta</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Share+Tech+Mono&family=Rajdhani:wght@300;500;700&display=swap');
+
+  :root {
+    --bg: #0a0d0f;
+    --panel: #0f1418;
+    --border: #1e2830;
+    --accent: #00e5ff;
+    --warn-left: #ff6b00;
+    --warn-right: #ff6b00;
+    --ok: #00ff88;
+    --danger: #ff2d55;
+    --text: #c8d8e0;
+    --dim: #3a4a55;
+  }
+
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: 'Rajdhani', sans-serif;
+    height: 100dvh;
+    width: 100vw;
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: flex-start;
+    position: relative;
+  }
+
+  /* ─── HEADER ─── */
+  header {
+    width: 100%;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 10px 16px 8px;
+    background: linear-gradient(180deg, rgba(0,229,255,0.06) 0%, transparent 100%);
+    border-bottom: 1px solid var(--border);
+    z-index: 10;
+    flex-shrink: 0;
+  }
+
+  .logo {
+    font-family: 'Share Tech Mono', monospace;
+    font-size: 1.1rem;
+    color: var(--accent);
+    letter-spacing: 2px;
+    text-shadow: 0 0 12px rgba(0,229,255,0.5);
+  }
+
+  .status-dot {
+    width: 8px; height: 8px;
+    border-radius: 50%;
+    background: var(--dim);
+    box-shadow: none;
+    transition: all 0.3s;
+    flex-shrink: 0;
+  }
+  .status-dot.active {
+    background: var(--ok);
+    box-shadow: 0 0 8px var(--ok);
+    animation: pulse 2s infinite;
+  }
+  @keyframes pulse {
+    0%,100%{opacity:1} 50%{opacity:0.5}
+  }
+
+  .header-right {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 0.75rem;
+    color: var(--dim);
+    font-family: 'Share Tech Mono', monospace;
+  }
+
+  /* ─── VIDEO AREA ─── */
+  .camera-wrapper {
+    position: relative;
+    width: 100%;
+    flex: 1;
+    overflow: hidden;
+    background: #000;
+  }
+
+  video {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    display: block;
+  }
+
+  canvas#overlay {
+    position: absolute;
+    top: 0; left: 0;
+    width: 100%; height: 100%;
+    pointer-events: none;
+  }
+
+  /* ─── CENTER RETICLE ─── */
+  .reticle {
+    position: absolute;
+    top: 50%; left: 50%;
+    transform: translate(-50%, -50%);
+    width: 60px; height: 60px;
+    pointer-events: none;
+  }
+  .reticle::before, .reticle::after {
+    content: '';
+    position: absolute;
+    border-color: rgba(0,229,255,0.6);
+    border-style: solid;
+  }
+  .reticle::before {
+    width: 20px; height: 20px;
+    top: 0; left: 0;
+    border-width: 2px 0 0 2px;
+  }
+  .reticle::after {
+    width: 20px; height: 20px;
+    bottom: 0; right: 0;
+    border-width: 0 2px 2px 0;
+  }
+
+  /* ─── DIRECTION ARROWS ─── */
+  .arrow-overlay {
+    position: absolute;
+    top: 0; left: 0; right: 0; bottom: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    pointer-events: none;
+  }
+
+  .arrow {
+    display: none;
+    font-size: 5rem;
+    filter: drop-shadow(0 0 20px currentColor);
+    animation: arrowPulse 0.6s ease-in-out infinite alternate;
+  }
+  .arrow.left { color: var(--warn-left); }
+  .arrow.right { color: var(--warn-right); }
+  .arrow.show { display: block; }
+
+  @keyframes arrowPulse {
+    from { transform: scale(1); opacity: 0.8; }
+    to   { transform: scale(1.15); opacity: 1; }
+  }
+
+  /* ─── FLASH OVERLAY ─── */
+  .flash {
+    position: absolute;
+    top: 0; left: 0; right: 0; bottom: 0;
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 0.1s;
+  }
+  .flash.left-flash  { background: linear-gradient(to right, rgba(255,107,0,0.35), transparent 60%); }
+  .flash.right-flash { background: linear-gradient(to left,  rgba(255,107,0,0.35), transparent 60%); }
+  .flash.ok-flash    { background: rgba(0,255,136,0.15); }
+  .flash.active { opacity: 1; }
+
+  /* ─── BOTTOM PANEL ─── */
+  .bottom-panel {
+    width: 100%;
+    background: var(--panel);
+    border-top: 1px solid var(--border);
+    padding: 10px 16px 12px;
+    z-index: 10;
+    flex-shrink: 0;
+  }
+
+  .status-bar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 8px;
+  }
+
+  .direction-label {
+    font-family: 'Share Tech Mono', monospace;
+    font-size: 0.95rem;
+    letter-spacing: 1px;
+    color: var(--dim);
+    transition: color 0.3s;
+    min-width: 160px;
+  }
+  .direction-label.center { color: var(--ok); }
+  .direction-label.left   { color: var(--warn-left); }
+  .direction-label.right  { color: var(--warn-right); }
+
+  .confidence-bar-wrap {
+    flex: 1;
+    margin: 0 12px;
+    height: 4px;
+    background: var(--border);
+    border-radius: 2px;
+    overflow: hidden;
+  }
+  .confidence-bar {
+    height: 100%;
+    background: var(--accent);
+    width: 0%;
+    transition: width 0.5s, background 0.3s;
+    border-radius: 2px;
+  }
+
+  .fps-label {
+    font-family: 'Share Tech Mono', monospace;
+    font-size: 0.7rem;
+    color: var(--dim);
+  }
+
+  /* ─── BUTTON ROW ─── */
+  .btn-row {
+    display: flex;
+    gap: 10px;
+  }
+
+  .btn {
+    flex: 1;
+    padding: 10px 0;
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    background: transparent;
+    color: var(--text);
+    font-family: 'Rajdhani', sans-serif;
+    font-size: 0.9rem;
+    font-weight: 500;
+    letter-spacing: 1px;
+    cursor: pointer;
+    transition: all 0.2s;
+    text-transform: uppercase;
+  }
+  .btn:hover { border-color: var(--accent); color: var(--accent); }
+  .btn.primary {
+    background: var(--accent);
+    color: #000;
+    border-color: var(--accent);
+    font-weight: 700;
+  }
+  .btn.primary:hover { box-shadow: 0 0 16px rgba(0,229,255,0.4); }
+  .btn.stop {
+    border-color: var(--danger);
+    color: var(--danger);
+  }
+  .btn.stop:hover { background: rgba(255,45,85,0.1); }
+  .btn:disabled { opacity: 0.35; cursor: not-allowed; }
+
+  /* ─── SETUP SCREEN ─── */
+  #setup-screen {
+    position: absolute;
+    inset: 0;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    background: var(--bg);
+    z-index: 20;
+    padding: 32px 24px;
+    gap: 20px;
+  }
+  #setup-screen.hidden { display: none; }
+
+  .big-icon {
+    font-size: 4rem;
+    filter: drop-shadow(0 0 20px rgba(0,229,255,0.4));
+  }
+
+  .setup-title {
+    font-size: 2rem;
+    font-weight: 700;
+    color: var(--accent);
+    letter-spacing: 2px;
+    text-align: center;
+    text-shadow: 0 0 20px rgba(0,229,255,0.3);
+  }
+
+  .setup-desc {
+    font-size: 0.95rem;
+    color: var(--dim);
+    text-align: center;
+    line-height: 1.6;
+    max-width: 320px;
+  }
+
+  .api-input-wrap {
+    width: 100%;
+    max-width: 360px;
+  }
+  .api-input-wrap label {
+    display: block;
+    font-family: 'Share Tech Mono', monospace;
+    font-size: 0.75rem;
+    color: var(--dim);
+    margin-bottom: 6px;
+    letter-spacing: 1px;
+  }
+  .api-input-wrap input {
+    width: 100%;
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 10px 14px;
+    color: var(--text);
+    font-family: 'Share Tech Mono', monospace;
+    font-size: 0.85rem;
+    outline: none;
+    transition: border-color 0.2s;
+  }
+  .api-input-wrap input:focus { border-color: var(--accent); }
+  .api-input-wrap input::placeholder { color: var(--dim); }
+
+  .hint {
+    font-size: 0.75rem;
+    color: var(--dim);
+    text-align: center;
+    opacity: 0.6;
+  }
+
+  /* ─── INTERVAL SELECTOR ─── */
+  .interval-row {
+    display: flex;
+    gap: 8px;
+    width: 100%;
+    max-width: 360px;
+    flex-wrap: wrap;
+  }
+  .interval-btn {
+    flex: 1;
+    min-width: 60px;
+    padding: 7px 4px;
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    background: transparent;
+    color: var(--dim);
+    font-family: 'Rajdhani', sans-serif;
+    font-size: 0.85rem;
+    cursor: pointer;
+    transition: all 0.2s;
+    text-align: center;
+  }
+  .interval-btn.selected {
+    border-color: var(--accent);
+    color: var(--accent);
+    background: rgba(0,229,255,0.07);
+  }
+
+  /* ─── SCAN LINE EFFECT ─── */
+  .scanlines {
+    position: absolute;
+    inset: 0;
+    background: repeating-linear-gradient(
+      to bottom,
+      transparent 0px,
+      transparent 3px,
+      rgba(0,0,0,0.08) 3px,
+      rgba(0,0,0,0.08) 4px
+    );
+    pointer-events: none;
+    z-index: 5;
+  }
+</style>
+</head>
+<body>
+
+<!-- SETUP SCREEN -->
+<div id="setup-screen">
+  <div class="big-icon">🧭</div>
+  <div class="setup-title">PATHGUIDE</div>
+  <div class="setup-desc">Sovellus tunnistaa tien tai polun kamerakuvasta ja ilmoittaa äänimerkeillä, jos sinun pitää kääntyä.</div>
+
+  <div class="api-input-wrap">
+    <label>ANTHROPIC API KEY</label>
+    <input type="password" id="api-key-input" placeholder="sk-ant-..." autocomplete="off">
+  </div>
+
+  <div class="api-input-wrap" style="margin-top: -8px;">
+    <label>ANALYYSIVÄLI</label>
+    <div class="interval-row">
+      <button class="interval-btn" data-val="1500">1.5s</button>
+      <button class="interval-btn selected" data-val="2500">2.5s</button>
+      <button class="interval-btn" data-val="4000">4s</button>
+      <button class="interval-btn" data-val="6000">6s</button>
+    </div>
+  </div>
+
+  <button class="btn primary" id="start-btn" style="max-width:360px;width:100%;padding:14px 0;font-size:1rem;">
+    KÄYNNISTÄ KAMERA
+  </button>
+  <div class="hint">Vaatii Anthropic API-avaimen · Toimii HTTPS-yhteydellä</div>
+</div>
+
+<!-- MAIN APP -->
+<header>
+  <div class="logo">PATHGUIDE</div>
+  <div class="header-right">
+    <div id="status-text" style="font-size:0.7rem;">ODOTTAA</div>
+    <div class="status-dot" id="status-dot"></div>
+  </div>
+</header>
+
+<div class="camera-wrapper">
+  <video id="video" autoplay muted playsinline></video>
+  <canvas id="overlay"></canvas>
+  <div class="scanlines"></div>
+  <div class="reticle"></div>
+  <div class="arrow-overlay">
+    <span class="arrow left" id="arrow-left">◀</span>
+    <span class="arrow right" id="arrow-right">▶</span>
+  </div>
+  <div class="flash left-flash"  id="flash-left"></div>
+  <div class="flash right-flash" id="flash-right"></div>
+  <div class="flash ok-flash"    id="flash-ok"></div>
+</div>
+
+<div class="bottom-panel">
+  <div class="status-bar">
+    <div class="direction-label" id="dir-label">– ODOTETAAN ANALYYSIA –</div>
+    <div class="confidence-bar-wrap">
+      <div class="confidence-bar" id="conf-bar"></div>
+    </div>
+    <div class="fps-label" id="fps-label">–</div>
+  </div>
+  <div class="btn-row">
+    <button class="btn stop" id="stop-btn" disabled>LOPETA</button>
+    <button class="btn" id="settings-btn">ASETUKSET</button>
+  </div>
+</div>
+
+<canvas id="capture-canvas" style="display:none;"></canvas>
+
+<script>
+// ── State ──────────────────────────────────────────────────────────────────
+let apiKey = '';
+let intervalMs = 2500;
+let stream = null;
+let analysisTimer = null;
+let audioCtx = null;
+let lastDirection = 'center';
+let analyzing = false;
+let lastAnalysisTime = 0;
+
+// ── DOM ────────────────────────────────────────────────────────────────────
+const setupScreen  = document.getElementById('setup-screen');
+const startBtn     = document.getElementById('start-btn');
+const stopBtn      = document.getElementById('stop-btn');
+const settingsBtn  = document.getElementById('settings-btn');
+const apiInput     = document.getElementById('api-key-input');
+const video        = document.getElementById('video');
+const captureCanvas = document.getElementById('capture-canvas');
+const overlayCanvas = document.getElementById('overlay');
+const dirLabel     = document.getElementById('dir-label');
+const confBar      = document.getElementById('conf-bar');
+const fpsLabel     = document.getElementById('fps-label');
+const statusDot    = document.getElementById('status-dot');
+const statusText   = document.getElementById('status-text');
+const arrowLeft    = document.getElementById('arrow-left');
+const arrowRight   = document.getElementById('arrow-right');
+const flashLeft    = document.getElementById('flash-left');
+const flashRight   = document.getElementById('flash-right');
+const flashOk      = document.getElementById('flash-ok');
+
+// ── Interval selector ──────────────────────────────────────────────────────
+document.querySelectorAll('.interval-btn').forEach(btn => {
+  btn.addEventListener('click', () => {
+    document.querySelectorAll('.interval-btn').forEach(b => b.classList.remove('selected'));
+    btn.classList.add('selected');
+    intervalMs = parseInt(btn.dataset.val);
+  });
+});
+
+// ── Load saved key ─────────────────────────────────────────────────────────
+const savedKey = sessionStorage.getItem('pg_apikey');
+if (savedKey) apiInput.value = savedKey;
+
+// ── Start ──────────────────────────────────────────────────────────────────
+startBtn.addEventListener('click', async () => {
+  apiKey = apiInput.value.trim();
+  if (!apiKey) { alert('Syötä Anthropic API-avain.'); return; }
+  sessionStorage.setItem('pg_apikey', apiKey);
+  await startCamera();
+});
+
+async function startCamera() {
+  try {
+    stream = await navigator.mediaDevices.getUserMedia({
+      video: { facingMode: 'environment', width: { ideal: 1280 }, height: { ideal: 720 } },
+      audio: false
+    });
+    video.srcObject = stream;
+    await new Promise(r => video.onloadedmetadata = r);
+    video.play();
+
+    setupScreen.classList.add('hidden');
+    stopBtn.disabled = false;
+    statusDot.classList.add('active');
+    statusText.textContent = 'AKTIIVINEN';
+
+    initAudio();
+    scheduleAnalysis();
+  } catch (e) {
+    alert('Kameran käyttö epäonnistui: ' + e.message);
+  }
+}
+
+// ── Stop ───────────────────────────────────────────────────────────────────
+stopBtn.addEventListener('click', stopApp);
+settingsBtn.addEventListener('click', () => { stopApp(); });
+
+function stopApp() {
+  clearTimeout(analysisTimer);
+  if (stream) { stream.getTracks().forEach(t => t.stop()); stream = null; }
+  video.srcObject = null;
+  statusDot.classList.remove('active');
+  statusText.textContent = 'PYSÄYTETTY';
+  stopBtn.disabled = true;
+  setupScreen.classList.remove('hidden');
+  setDirection('center', 0);
+}
+
+// ── Audio ──────────────────────────────────────────────────────────────────
+function initAudio() {
+  if (audioCtx) return;
+  audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+}
+
+function playBeep(direction) {
+  if (!audioCtx) return;
+  const pan = new StereoPannerNode(audioCtx, { pan: direction === 'left' ? -1 : 1 });
+  const osc = audioCtx.createOscillator();
+  const gain = audioCtx.createGain();
+
+  osc.type = direction === 'left' ? 'sine' : 'sine';
+  osc.frequency.value = direction === 'left' ? 440 : 660;
+  gain.gain.setValueAtTime(0.0001, audioCtx.currentTime);
+  gain.gain.exponentialRampToValueAtTime(0.4, audioCtx.currentTime + 0.05);
+  gain.gain.exponentialRampToValueAtTime(0.0001, audioCtx.currentTime + 0.35);
+
+  osc.connect(gain).connect(pan).connect(audioCtx.destination);
+  osc.start();
+  osc.stop(audioCtx.currentTime + 0.4);
+}
+
+function playCenterOk() {
+  if (!audioCtx) return;
+  [523, 659, 784].forEach((freq, i) => {
+    const osc = audioCtx.createOscillator();
+    const gain = audioCtx.createGain();
+    const t = audioCtx.currentTime + i * 0.08;
+    osc.frequency.value = freq;
+    gain.gain.setValueAtTime(0.0001, t);
+    gain.gain.exponentialRampToValueAtTime(0.2, t + 0.04);
+    gain.gain.exponentialRampToValueAtTime(0.0001, t + 0.2);
+    osc.connect(gain).connect(audioCtx.destination);
+    osc.start(t); osc.stop(t + 0.25);
+  });
+}
+
+// ── UI Direction ───────────────────────────────────────────────────────────
+function setDirection(dir, confidence) {
+  arrowLeft.classList.remove('show');
+  arrowRight.classList.remove('show');
+  [flashLeft, flashRight, flashOk].forEach(f => f.classList.remove('active'));
+  dirLabel.className = 'direction-label';
+
+  confBar.style.width = (confidence * 100) + '%';
+  confBar.style.background = dir === 'center' ? 'var(--ok)' : 'var(--warn-left)';
+
+  if (dir === 'left') {
+    arrowLeft.classList.add('show');
+    flashLeft.classList.add('active');
+    dirLabel.classList.add('left');
+    dirLabel.textContent = '◀  KÄÄNNY VASEMMALLE';
+  } else if (dir === 'right') {
+    arrowRight.classList.add('show');
+    flashRight.classList.add('active');
+    dirLabel.classList.add('right');
+    dirLabel.textContent = '  KÄÄNNY OIKEALLE ▶';
+  } else {
+    dirLabel.classList.add('center');
+    dirLabel.textContent = '✓  POLKU KESKELLÄ';
+    if (lastDirection !== 'center') flashOk.classList.add('active');
+  }
+
+  lastDirection = dir;
+}
+
+// ── Capture frame ──────────────────────────────────────────────────────────
+function captureBase64() {
+  const w = video.videoWidth || 640;
+  const h = video.videoHeight || 480;
+  captureCanvas.width  = Math.round(w * 0.5);
+  captureCanvas.height = Math.round(h * 0.5);
+  const ctx = captureCanvas.getContext('2d');
+  ctx.drawImage(video, 0, 0, captureCanvas.width, captureCanvas.height);
+  const dataUrl = captureCanvas.toDataURL('image/jpeg', 0.7);
+  return dataUrl.split(',')[1];
+}
+
+// ── Analysis ───────────────────────────────────────────────────────────────
+function scheduleAnalysis() {
+  analysisTimer = setTimeout(async () => {
+    if (stream && !analyzing) await runAnalysis();
+    if (stream) scheduleAnalysis();
+  }, intervalMs);
+}
+
+async function runAnalysis() {
+  analyzing = true;
+  const t0 = Date.now();
+  statusText.textContent = 'ANALYSOI...';
+
+  let imageData;
+  try { imageData = captureBase64(); }
+  catch (e) { analyzing = false; statusText.textContent = 'AKTIIVINEN'; return; }
+
+  const prompt = `You are a path-detection assistant for a navigation aid app.
+Analyze this camera image taken by someone walking on a path, road, or trail.
+
+Determine:
+1. Is there a visible path/road/trail in the image?
+2. Where is the center of the path relative to the image center?
+
+Respond ONLY with a JSON object (no markdown, no extra text):
+{
+  "pathFound": true/false,
+  "direction": "left" | "center" | "right",
+  "confidence": 0.0–1.0,
+  "note": "brief explanation in Finnish (max 8 words)"
+}
+
+Rules:
+- direction = "left" if the path center is clearly left of image center (user should turn left)
+- direction = "right" if the path center is clearly right of image center (user should turn right)  
+- direction = "center" if path is roughly centered (within middle 30% of image width)
+- If no path found, set pathFound=false and direction="center"`;
+
+  try {
+    const res = await fetch('https://api.anthropic.com/v1/messages', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'x-api-key': apiKey,
+        'anthropic-version': '2023-06-01',
+        'anthropic-dangerous-direct-browser-access': 'true'
+      },
+      body: JSON.stringify({
+        model: 'claude-sonnet-4-20250514',
+        max_tokens: 150,
+        messages: [{
+          role: 'user',
+          content: [
+            { type: 'image', source: { type: 'base64', media_type: 'image/jpeg', data: imageData } },
+            { type: 'text', text: prompt }
+          ]
+        }]
+      })
+    });
+
+    const data = await res.json();
+    const elapsed = Date.now() - t0;
+    fpsLabel.textContent = (elapsed / 1000).toFixed(1) + 's';
+
+    if (data.error) throw new Error(data.error.message);
+
+    const text = data.content.map(b => b.text || '').join('');
+    const clean = text.replace(/```json|```/g, '').trim();
+    const result = JSON.parse(clean);
+
+    const dir = result.pathFound ? (result.direction || 'center') : 'center';
+    const conf = result.confidence ?? 0.5;
+
+    setDirection(dir, conf);
+
+    if (dir === 'left')  { playBeep('left'); }
+    else if (dir === 'right') { playBeep('right'); }
+    else if (lastDirection !== 'center' && dir === 'center') { playCenterOk(); }
+
+    statusText.textContent = 'AKTIIVINEN';
+  } catch (e) {
+    console.error('Analysis error:', e);
+    statusText.textContent = 'VIRHE';
+    dirLabel.textContent = '⚠ ' + (e.message || 'Analyysivirhe').substring(0, 30);
+  }
+
+  lastAnalysisTime = Date.now();
+  analyzing = false;
+}
+</script>
+</body>
+</html>
