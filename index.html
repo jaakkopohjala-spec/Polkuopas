@@ -4,7 +4,7 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
   <meta name="theme-color" content="#0f172a" />
-  <title>Polkuopas – kehitysversio</title>
+  <title>Polkuopas – kehitysversio 3</title>
   <style>
     :root {
       --bg: #0f172a;
@@ -251,9 +251,9 @@
 <body>
   <main>
     <header>
-      <h1>Polkuopas – kehitysversio</h1>
+      <h1>Polkuopas – kehitysversio 3</h1>
       <p>
-        Kehitysversio käyttää puhelimen kameraa, arvioi kuvan alaosasta kulkuväylän sijaintia
+        Kehitysversio käyttää puhelimen kameraa ja arvioi jatkuvan kulkukäytävän keskilinjaa
         ja antaa vasen/oikea-stereoäänimerkin, jos havaittu tie tai polku ei ole keskellä.
       </p>
     </header>
@@ -516,85 +516,228 @@
       const image = ctx.getImageData(0, 0, analysisW, analysisH);
       const data = image.data;
 
-      const yStart = Math.floor(analysisH * 0.48);
-      const yEnd = Math.floor(analysisH * 0.94);
-      const bins = new Array(analysisW).fill(0);
-      const counts = new Array(analysisW).fill(0);
+      /*
+        Version 3: jatkuva käytävä -algoritmi.
 
-      for (let y = yStart + 1; y < yEnd - 1; y += 2) {
-        for (let x = 1; x < analysisW - 1; x += 2) {
-          const idx = (y * analysisW + x) * 4;
-          const r = data[idx];
-          const g = data[idx + 1];
-          const b = data[idx + 2];
-          const lum = 0.2126 * r + 0.7152 * g + 0.0722 * b;
+        Vanha versio etsi koko alaosasta "parasta" kulkuväylämäistä pintaa.
+        Tämä versio analysoi useita vaakavyöhykkeitä alhaalta ylöspäin.
 
-          const idxL = (y * analysisW + (x - 1)) * 4;
-          const idxR = (y * analysisW + (x + 1)) * 4;
-          const idxU = ((y - 1) * analysisW + x) * 4;
-          const idxD = ((y + 1) * analysisW + x) * 4;
+        Ajatus:
+        - käyttäjän lähin kulkuväylä näkyy kuvan alareunassa
+        - sama väylä jatkuu yleensä ylöspäin kohti horisonttia
+        - yksittäiset vaaleat/varjoisat laikut eivät saa ohjata liikaa
+        - vyöhykkeen keskipistettä painotetaan enemmän, jos se jatkaa alempien vyöhykkeiden linjaa
+      */
 
-          const lumL = 0.2126 * data[idxL] + 0.7152 * data[idxL + 1] + 0.0722 * data[idxL + 2];
-          const lumR = 0.2126 * data[idxR] + 0.7152 * data[idxR + 1] + 0.0722 * data[idxR + 2];
-          const lumU = 0.2126 * data[idxU] + 0.7152 * data[idxU + 1] + 0.0722 * data[idxU + 2];
-          const lumD = 0.2126 * data[idxD] + 0.7152 * data[idxD + 1] + 0.0722 * data[idxD + 2];
+      const zones = [
+        { top: 0.78, bottom: 0.94, weight: 1.55, halfWidth: 0.46 },
+        { top: 0.64, bottom: 0.80, weight: 1.30, halfWidth: 0.40 },
+        { top: 0.52, bottom: 0.66, weight: 1.05, halfWidth: 0.34 },
+        { top: 0.42, bottom: 0.54, weight: 0.78, halfWidth: 0.29 },
+        { top: 0.34, bottom: 0.44, weight: 0.52, halfWidth: 0.24 }
+      ];
 
-          const edge = Math.abs(lumR - lumL) + Math.abs(lumD - lumU);
-          const saturation = Math.max(r, g, b) - Math.min(r, g, b);
+      const zoneResults = [];
+      let predictedCenter = analysisW / 2;
+      let previousConfidence = 0;
+      let totalWeightedCenter = 0;
+      let totalCenterWeight = 0;
+      let totalConfidence = 0;
+      let validZones = 0;
 
-          let score = 0;
-          score += Math.max(0, 80 - edge) / 80;
-          score += Math.max(0, 90 - saturation) / 90;
-          score += lum > 45 ? 0.35 : 0;
+      for (let zi = 0; zi < zones.length; zi++) {
+        const z = zones[zi];
+        const yStart = Math.max(1, Math.floor(analysisH * z.top));
+        const yEnd = Math.min(analysisH - 2, Math.floor(analysisH * z.bottom));
 
-          const verticalWeight = 0.65 + 0.7 * ((y - yStart) / Math.max(1, yEnd - yStart));
-          bins[x] += score * verticalWeight;
-          counts[x] += verticalWeight;
-        }
-      }
+        const bins = new Array(analysisW).fill(0);
+        const counts = new Array(analysisW).fill(0);
 
-      const smoothed = bins.map((sum, i) => sum / Math.max(1, counts[i]));
-      const radius = 8;
-      const profile = smoothed.map((_, i) => {
-        let s = 0;
-        let c = 0;
-        for (let k = -radius; k <= radius; k++) {
-          const j = i + k;
-          if (j >= 0 && j < analysisW) {
-            s += smoothed[j];
-            c++;
+        /*
+          Perspective gate:
+          Ylempänä kuvassa kulkuväylän odotetaan olevan kapeampi ja lähempänä
+          alempien vyöhykkeiden ennustamaa keskilinjaa. Tämä estää sivulaikkuja
+          kaappaamasta tulosta.
+        */
+        const gateHalfWidth = Math.max(26, analysisW * z.halfWidth);
+
+        for (let y = yStart; y <= yEnd; y += 2) {
+          const yWeight = 0.85 + 0.3 * ((y - yStart) / Math.max(1, yEnd - yStart));
+
+          for (let x = 1; x < analysisW - 1; x += 2) {
+            const dxPred = Math.abs(x - predictedCenter);
+            const gateWeight = Math.max(0.08, 1 - Math.pow(dxPred / gateHalfWidth, 2));
+            if (gateWeight <= 0.08 && zi > 0) continue;
+
+            const idx = (y * analysisW + x) * 4;
+            const r = data[idx];
+            const g = data[idx + 1];
+            const b = data[idx + 2];
+
+            const lum = 0.2126 * r + 0.7152 * g + 0.0722 * b;
+            const saturation = Math.max(r, g, b) - Math.min(r, g, b);
+
+            const idxL = (y * analysisW + (x - 1)) * 4;
+            const idxR = (y * analysisW + (x + 1)) * 4;
+            const idxU = ((y - 1) * analysisW + x) * 4;
+            const idxD = ((y + 1) * analysisW + x) * 4;
+
+            const lumL = 0.2126 * data[idxL] + 0.7152 * data[idxL + 1] + 0.0722 * data[idxL + 2];
+            const lumR = 0.2126 * data[idxR] + 0.7152 * data[idxR + 1] + 0.0722 * data[idxR + 2];
+            const lumU = 0.2126 * data[idxU] + 0.7152 * data[idxU + 1] + 0.0722 * data[idxU + 2];
+            const lumD = 0.2126 * data[idxD] + 0.7152 * data[idxD + 1] + 0.0722 * data[idxD + 2];
+
+            const edge = Math.abs(lumR - lumL) + Math.abs(lumD - lumU);
+
+            /*
+              Kulkuväyläpisteytys.
+              - vähäinen paikallinen reunaisuus voi tarkoittaa tasaista kulkupintaa
+              - maltillinen värikylläisyys sopii monille teille/käytäville
+              - liian tummaa kuvaa ei palkita
+              - pieni keskialuepainotus vähentää kuvan reunoilla olevien häiriöiden vaikutusta
+            */
+            let score = 0;
+            score += Math.max(0, 92 - edge) / 92;
+            score += Math.max(0, 105 - saturation) / 105;
+            score += lum > 42 ? 0.38 : 0;
+
+            const centerBias = 0.80 + 0.20 * (1 - Math.abs(x - analysisW / 2) / (analysisW / 2));
+            const finalWeight = yWeight * gateWeight * centerBias;
+
+            bins[x] += score * finalWeight;
+            counts[x] += finalWeight;
           }
         }
-        return s / Math.max(1, c);
-      });
 
-      const maxScore = Math.max(...profile);
-      const avgScore = profile.reduce((a, b) => a + b, 0) / profile.length;
-      const minScore = Math.min(...profile);
-      const dynamicThreshold = avgScore + (maxScore - avgScore) * 0.38;
+        const profileRaw = bins.map((sum, i) => sum / Math.max(1e-6, counts[i]));
 
-      let weightedX = 0;
-      let totalWeight = 0;
-      for (let x = 0; x < analysisW; x++) {
-        const weight = Math.max(0, profile[x] - dynamicThreshold);
-        weightedX += x * weight;
-        totalWeight += weight;
+        // Smooth the horizontal profile
+        const radius = zi <= 1 ? 10 : 8;
+        const profile = profileRaw.map((_, i) => {
+          let s = 0;
+          let c = 0;
+          for (let k = -radius; k <= radius; k++) {
+            const j = i + k;
+            if (j >= 0 && j < analysisW) {
+              s += profileRaw[j];
+              c++;
+            }
+          }
+          return s / Math.max(1, c);
+        });
+
+        const maxScore = Math.max(...profile);
+        const avgScore = profile.reduce((a, b) => a + b, 0) / profile.length;
+        const minScore = Math.min(...profile);
+        const spread = maxScore - avgScore;
+
+        /*
+          Use a dynamic cutoff, but keep enough mass around the best area so that
+          a broad road is not reduced to a single noisy point.
+        */
+        const cutoff = avgScore + spread * 0.30;
+
+        let weightedX = 0;
+        let totalWeight = 0;
+        let bestX = analysisW / 2;
+        let bestValue = -Infinity;
+
+        for (let x = 0; x < analysisW; x++) {
+          if (profile[x] > bestValue) {
+            bestValue = profile[x];
+            bestX = x;
+          }
+
+          const mass = Math.max(0, profile[x] - cutoff);
+          weightedX += x * mass;
+          totalWeight += mass;
+        }
+
+        let zoneCenter = totalWeight > 0.001 ? weightedX / totalWeight : bestX;
+
+        /*
+          Continuity confidence:
+          - profiilissa pitää olla selkeä erottuva alue
+          - vyöhykkeen keskipisteen pitää olla uskottavan lähellä ennustettua linjaa
+        */
+        const contrastConf = Math.min(1, spread / Math.max(0.001, avgScore - minScore + 0.10));
+        const continuityDistance = Math.abs(zoneCenter - predictedCenter) / Math.max(1, gateHalfWidth);
+        const continuityConf = zi === 0 ? 1 : Math.max(0, 1 - continuityDistance);
+        const zoneConf = Math.max(0, Math.min(1, contrastConf * (0.45 + 0.55 * continuityConf)));
+
+        zoneResults.push({
+          y: (yStart + yEnd) / 2,
+          top: yStart,
+          bottom: yEnd,
+          center: zoneCenter,
+          confidence: zoneConf,
+          weight: z.weight
+        });
+
+        if (zoneConf > 0.13) {
+          validZones++;
+          totalConfidence += zoneConf;
+          const combinedWeight = z.weight * (0.25 + zoneConf);
+          totalWeightedCenter += zoneCenter * combinedWeight;
+          totalCenterWeight += combinedWeight;
+        }
+
+        /*
+          Päivitä seuraavan ylemmän vyöhykkeen ennuste. Alempi vyöhyke ohjaa
+          ylempiä, mutta ei lukitse niitä täysin.
+        */
+        const trust = Math.min(0.78, 0.28 + zoneConf * 0.50);
+        predictedCenter = predictedCenter * (1 - trust) + zoneCenter * trust;
+        previousConfidence = zoneConf;
       }
 
-      let centerX = analysisW / 2;
-      let conf = 0;
+      let centerX = totalCenterWeight > 0 ? totalWeightedCenter / totalCenterWeight : analysisW / 2;
 
-      if (totalWeight > 0.1) {
-        centerX = weightedX / totalWeight;
-        conf = Math.min(1, (maxScore - avgScore) / Math.max(0.001, avgScore - minScore + 0.08));
+      /*
+        Estimate the forward direction from a fitted line through zone centers.
+        This helps curving paths: if upper zones drift left/right, the app reacts
+        earlier than a pure bottom-area detector.
+      */
+      let fitWeight = 0;
+      let sumY = 0;
+      let sumX = 0;
+      for (const zr of zoneResults) {
+        const w = zr.weight * Math.max(0, zr.confidence - 0.08);
+        fitWeight += w;
+        sumY += zr.y * w;
+        sumX += zr.center * w;
+      }
+
+      let aimX = centerX;
+      if (fitWeight > 0.001) {
+        const meanY = sumY / fitWeight;
+        const meanX = sumX / fitWeight;
+        let numerator = 0;
+        let denominator = 0;
+        for (const zr of zoneResults) {
+          const w = zr.weight * Math.max(0, zr.confidence - 0.08);
+          numerator += w * (zr.y - meanY) * (zr.center - meanX);
+          denominator += w * Math.pow(zr.y - meanY, 2);
+        }
+
+        const slope = denominator > 0.001 ? numerator / denominator : 0;
+        const lookAheadY = analysisH * 0.58;
+        aimX = meanX + slope * (lookAheadY - meanY);
+
+        // Mix: nearby bottom center is stable, look-ahead line is directional.
+        centerX = centerX * 0.68 + aimX * 0.32;
       }
 
       const rawOffset = (centerX - analysisW / 2) / (analysisW / 2);
 
-      history.push({ rawOffset, conf });
-      if (history.length > 10) history.shift();
+      const avgZoneConfidence = validZones > 0 ? totalConfidence / validZones : 0;
+      const continuityBonus = Math.min(1, validZones / 3);
+      const conf = Math.max(0, Math.min(1, avgZoneConfidence * (0.65 + 0.35 * continuityBonus)));
 
-      const usable = history.filter(v => v.conf > 0.18);
+      history.push({ rawOffset, conf });
+      if (history.length > 12) history.shift();
+
+      const usable = history.filter(v => v.conf > 0.16);
       const smoothOffset = usable.length
         ? usable.reduce((a, b) => a + b.rawOffset, 0) / usable.length
         : rawOffset;
@@ -609,17 +752,17 @@
       const threshold = Number(thresholdInput.value);
 
       let direction = "Keskellä";
-      let message = "Kulkuväylä vaikuttaa olevan keskellä.";
+      let message = "Kulkuväylän keskilinja vaikuttaa olevan keskellä.";
 
-      if (smoothConf < 0.2) {
+      if (smoothConf < 0.18) {
         direction = "Epävarma";
-        message = "Polkua tai tietä ei tunnisteta luotettavasti.";
+        message = "Kulkukäytävän jatkuvaa keskilinjaa ei tunnisteta luotettavasti.";
       } else if (smoothOffset < -threshold) {
         direction = "Vasen";
-        message = "Kulkuväylä on vasemmalla. Käänny vasemmalle.";
+        message = "Kulkukäytävän keskilinja on vasemmalla. Käänny vasemmalle.";
       } else if (smoothOffset > threshold) {
         direction = "Oikea";
-        message = "Kulkuväylä on oikealla. Käänny oikealle.";
+        message = "Kulkukäytävän keskilinja on oikealla. Käänny oikealle.";
       }
 
       setDirection(direction, message);
@@ -641,7 +784,7 @@
         }
       }
 
-      drawOverlay(centerX / analysisW, smoothOffset, smoothConf);
+      drawOverlay(centerX / analysisW, smoothOffset, smoothConf, zoneResults);
     }
 
     function clearOverlay() {
@@ -649,7 +792,7 @@
       ctx.clearRect(0, 0, overlay.width, overlay.height);
     }
 
-    function drawOverlay(centerRatio, smoothOffset, smoothConf) {
+    function drawOverlay(centerRatio, smoothOffset, smoothConf, zoneResults) {
       const rect = video.getBoundingClientRect();
       overlay.width = Math.max(1, Math.round(rect.width));
       overlay.height = Math.max(1, Math.round(rect.height));
@@ -662,6 +805,7 @@
 
       if (!debugEnabled.checked) return;
 
+      // Camera center line
       ctx.lineWidth = 3;
       ctx.strokeStyle = "rgba(255,255,255,0.85)";
       ctx.beginPath();
@@ -669,20 +813,56 @@
       ctx.lineTo(w / 2, h);
       ctx.stroke();
 
+      // Detected corridor center line
       const pathX = centerRatio * w;
-      ctx.strokeStyle = smoothConf < 0.2 ? "rgba(255,190,0,0.96)" : "rgba(0,255,190,0.96)";
+      ctx.strokeStyle = smoothConf < 0.18 ? "rgba(255,190,0,0.96)" : "rgba(0,255,190,0.96)";
       ctx.beginPath();
-      ctx.moveTo(pathX, h * 0.45);
+      ctx.moveTo(pathX, h * 0.34);
       ctx.lineTo(pathX, h);
       ctx.stroke();
 
+      // Zone centers
+      if (Array.isArray(zoneResults)) {
+        ctx.lineWidth = 2;
+        for (const zr of zoneResults) {
+          const y = (zr.y / analysisCanvas.height) * h;
+          const x = (zr.center / analysisCanvas.width) * w;
+          const alpha = Math.max(0.15, Math.min(0.95, zr.confidence));
+          ctx.strokeStyle = "rgba(125, 249, 255, " + alpha.toFixed(2) + ")";
+          ctx.beginPath();
+          ctx.moveTo(Math.max(0, x - 22), y);
+          ctx.lineTo(Math.min(w, x + 22), y);
+          ctx.stroke();
+
+          ctx.beginPath();
+          ctx.arc(x, y, 4 + 4 * alpha, 0, Math.PI * 2);
+          ctx.stroke();
+        }
+
+        // Connect zone centers for visual debugging
+        const good = zoneResults.filter(zr => zr.confidence > 0.12);
+        if (good.length >= 2) {
+          ctx.strokeStyle = "rgba(125, 249, 255, 0.65)";
+          ctx.lineWidth = 2;
+          ctx.beginPath();
+          for (let i = 0; i < good.length; i++) {
+            const x = (good[i].center / analysisCanvas.width) * w;
+            const y = (good[i].y / analysisCanvas.height) * h;
+            if (i === 0) ctx.moveTo(x, y);
+            else ctx.lineTo(x, y);
+          }
+          ctx.stroke();
+        }
+      }
+
       ctx.fillStyle = "rgba(0,0,0,0.62)";
-      ctx.fillRect(12, 12, 260, 86);
+      ctx.fillRect(12, 12, 292, 104);
       ctx.fillStyle = "white";
       ctx.font = "15px system-ui, -apple-system, sans-serif";
-      ctx.fillText("Poikkeama: " + smoothOffset.toFixed(2), 24, 40);
-      ctx.fillText("Varmuus: " + Math.round(smoothConf * 100) + " %", 24, 64);
-      ctx.fillText("Kynnys: " + Number(thresholdInput.value).toFixed(2), 24, 88);
+      ctx.fillText("Algoritmi: jatkuva käytävä v3", 24, 40);
+      ctx.fillText("Poikkeama: " + smoothOffset.toFixed(2), 24, 64);
+      ctx.fillText("Varmuus: " + Math.round(smoothConf * 100) + " %", 24, 88);
+      ctx.fillText("Kynnys: " + Number(thresholdInput.value).toFixed(2), 24, 112);
     }
 
     startButton.addEventListener("click", startCamera);
