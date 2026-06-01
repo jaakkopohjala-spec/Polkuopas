@@ -1,19 +1,13 @@
-# Polkuopas – staattinen selainprototyyppi
+# Polkuopas – staattinen kehitysversio
 
-Tämä kansio sisältää ensimmäisen testiversion, joka toimii ilman Reactia, Viteä tai build-vaihetta.
+Tämä versio toimii ilman Reactia, Viteä tai build-vaihetta.
 
-## Käyttöönotto GitHub Pagesissa
+Muutokset edelliseen:
+- terävämmät ja voimakkaammat vasen/oikea-äänimerkit
+- lyhyempi piippausväli
+- näkyvät yleisvaroitustekstit poistettu kehitystestauksen ajaksi
 
-1. Avaa GitHubissa repository `Polkuopas`.
-2. Korvaa repon juuressa oleva vanha `index.html` tällä uudella `index.html`-tiedostolla.
-3. Commitoi muutos.
-4. Varmista GitHubin asetuksista: Settings → Pages.
-5. Jos Pages julkaisee repon juuresta, valitse lähteeksi esimerkiksi `main` branch ja `/root`.
-6. Avaa sivu iPhonen Safarissa osoitteesta:
-   `https://KAYTTAJANIMI.github.io/Polkuopas/`
-
-## Huomio
-
-Kameran käyttö edellyttää HTTPS-yhteyttä. GitHub Pages tarjoaa HTTPS-yhteyden.
-
-Tämä on vain tekninen prototyyppi eikä turvallisuuskriittinen apuväline.
+Käyttöönotto:
+1. Korvaa GitHub-repositoryn juuressa oleva `index.html` tällä tiedostolla.
+2. Commitoi muutos.
+3. Avaa GitHub Pages -osoite iPhonen Safarissa.

@@ -4,7 +4,7 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
   <meta name="theme-color" content="#0f172a" />
-  <title>Polkuopas – selainprototyyppi</title>
+  <title>Polkuopas – kehitysversio</title>
   <style>
     :root {
       --bg: #0f172a;
@@ -251,9 +251,9 @@
 <body>
   <main>
     <header>
-      <h1>Polkuopas – ensimmäinen selainprototyyppi</h1>
+      <h1>Polkuopas – kehitysversio</h1>
       <p>
-        Tämä testiversio käyttää puhelimen kameraa, arvioi kuvan alaosasta kulkuväylän sijaintia
+        Kehitysversio käyttää puhelimen kameraa, arvioi kuvan alaosasta kulkuväylän sijaintia
         ja antaa vasen/oikea-stereoäänimerkin, jos havaittu tie tai polku ei ole keskellä.
       </p>
     </header>
@@ -321,16 +321,10 @@
           <button id="resetButton" class="secondary" style="width:100%;">Nollaa mittaushistoria</button>
         </div>
       </aside>
-    </section>
-
+    </section> 
     <section class="notice">
       <p>
-        <strong>Turvahuomio:</strong> tämä on vain tekninen prototyyppi. Se ei tunnista luotettavasti esteitä,
-        portaita, pudotuksia, liikennettä, ihmisiä, pyöriä, autoja tai muita vaaratilanteita. Testaa vain
-        turvallisessa ympäristössä ja käytä tarvittaessa avustajaa.
-      </p>
-      <p>
-        iPhonella avaa sivu Safarissa GitHub Pages -osoitteesta, ei GitHubin tiedostonäkymästä.
+        <strong>Kehitysmuistiinpano:</strong> avaa sivu iPhonen Safarissa GitHub Pages -osoitteesta.
         Kameran käyttö vaatii HTTPS-yhteyden.
       </p>
     </section>
@@ -415,12 +409,12 @@
       const hasStereoPanner = typeof ctx.createStereoPanner === "function";
       const panner = hasStereoPanner ? ctx.createStereoPanner() : null;
 
-      osc.type = kind === "uncertain" ? "triangle" : "sine";
-      osc.frequency.value = kind === "uncertain" ? 220 : 520 + Math.min(severity, 1) * 260;
+      osc.type = kind === "uncertain" ? "square" : "square";
+      osc.frequency.value = kind === "uncertain" ? 260 : 880 + Math.min(severity, 1) * 520;
 
       gain.gain.setValueAtTime(0.0001, now);
-      gain.gain.exponentialRampToValueAtTime(kind === "uncertain" ? 0.075 : 0.13, now + 0.02);
-      gain.gain.exponentialRampToValueAtTime(0.0001, now + 0.16);
+      gain.gain.exponentialRampToValueAtTime(kind === "uncertain" ? 0.16 : 0.30, now + 0.008);
+      gain.gain.exponentialRampToValueAtTime(0.0001, now + 0.10);
 
       if (panner) {
         panner.pan.value = pan;
@@ -433,7 +427,7 @@
       }
 
       osc.start(now);
-      osc.stop(now + 0.18);
+      osc.stop(now + 0.12);
     }
 
     async function startCamera() {
@@ -632,7 +626,7 @@
 
       const nowMs = performance.now();
       const absOffset = Math.abs(smoothOffset);
-      const interval = Math.max(240, 900 - absOffset * 1000);
+      const interval = Math.max(180, 720 - absOffset * 820);
 
       if (nowMs - lastBeepMs > interval) {
         if (direction === "Vasen") {
