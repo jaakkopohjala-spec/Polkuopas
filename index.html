@@ -4,7 +4,7 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
   <meta name="theme-color" content="#0f172a" />
-  <title>Polkuopas – kehitysversio 3</title>
+  <title>Polkuopas – kehitysversio 4</title>
   <style>
     :root {
       --bg: #0f172a;
@@ -246,12 +246,24 @@
     code {
       color: #fef3c7;
     }
+
+    .sr-only {
+      position: absolute;
+      width: 1px;
+      height: 1px;
+      padding: 0;
+      margin: -1px;
+      overflow: hidden;
+      clip: rect(0, 0, 0, 0);
+      white-space: nowrap;
+      border: 0;
+    }
   </style>
 </head>
 <body>
   <main>
     <header>
-      <h1>Polkuopas – kehitysversio 3</h1>
+      <h1>Polkuopas – kehitysversio 4</h1>
       <p>
         Kehitysversio käyttää puhelimen kameraa ja arvioi jatkuvan kulkukäytävän keskilinjaa
         ja antaa vasen/oikea-stereoäänimerkin, jos havaittu tie tai polku ei ole keskellä.
@@ -277,12 +289,13 @@
 
       <aside class="card">
         <div class="card-inner">
-          <div id="directionBox" class="direction state-stopped" aria-live="polite">
+          <div id="directionBox" class="direction state-stopped">
             <div class="label">Ohjaus</div>
             <div id="directionValue" class="value">-</div>
           </div>
 
-          <p id="status" class="status" aria-live="polite">Ei käynnissä.</p>
+          <p id="status" class="status">Ei käynnissä.</p>
+          <div id="voiceOverLiveRegion" class="sr-only" aria-live="polite" aria-atomic="true"></div>
 
           <div class="metric">
             <span>Poikkeama</span>
@@ -311,6 +324,11 @@
           <label class="checkrow">
             <input id="beepsEnabled" type="checkbox" checked />
             Äänimerkit käytössä
+          </label>
+
+          <label class="checkrow">
+            <input id="voiceOverEnabled" type="checkbox" />
+            VoiceOver-puheohjeet käytössä
           </label>
 
           <label class="checkrow">
@@ -350,10 +368,12 @@
     const offsetBar = document.getElementById("offsetBar");
     const confidenceValue = document.getElementById("confidenceValue");
     const confidenceBar = document.getElementById("confidenceBar");
+    const voiceOverLiveRegion = document.getElementById("voiceOverLiveRegion");
 
     const thresholdInput = document.getElementById("threshold");
     const thresholdValue = document.getElementById("thresholdValue");
     const beepsEnabled = document.getElementById("beepsEnabled");
+    const voiceOverEnabled = document.getElementById("voiceOverEnabled");
     const debugEnabled = document.getElementById("debugEnabled");
 
     let stream = null;
@@ -362,22 +382,74 @@
     let lastBeepMs = 0;
     let running = false;
     let history = [];
+    let currentVisualDirection = "";
+    let currentVisualMessage = "";
+    let lastVoiceOverDirection = "";
+    let lastVoiceOverMs = 0;
 
     function setStatus(text) {
       statusEl.textContent = text;
     }
 
     function setDirection(direction, message) {
-      directionValue.textContent = direction;
-      directionBox.className = "direction";
+      /*
+        Näkyvä käyttöliittymä ja VoiceOver-puhe on erotettu toisistaan.
 
-      if (direction === "Vasen") directionBox.classList.add("state-left");
-      else if (direction === "Oikea") directionBox.classList.add("state-right");
-      else if (direction === "Keskellä") directionBox.classList.add("state-center");
-      else if (direction === "Epävarma") directionBox.classList.add("state-uncertain");
-      else directionBox.classList.add("state-stopped");
+        Aiemmissa versioissa näkyvissä status- ja ohjauskentissä oli aria-live.
+        Koska analyzeFrame() pyörii jatkuvasti, VoiceOver saattoi ilmoittaa saman
+        pitkän lauseen yhä uudelleen.
 
-      setStatus(message);
+        Nyt:
+        - näkyvä teksti päivitetään vain, jos se oikeasti muuttuu
+        - VoiceOver saa vain erillisen lyhyen ilmoituksen
+        - ilmoituksen saa päälle tai pois valintaruudulla
+      */
+
+      if (direction !== currentVisualDirection) {
+        directionValue.textContent = direction;
+        directionBox.className = "direction";
+
+        if (direction === "Vasen") directionBox.classList.add("state-left");
+        else if (direction === "Oikea") directionBox.classList.add("state-right");
+        else if (direction === "Keskellä") directionBox.classList.add("state-center");
+        else if (direction === "Epävarma") directionBox.classList.add("state-uncertain");
+        else directionBox.classList.add("state-stopped");
+
+        currentVisualDirection = direction;
+      }
+
+      if (message !== currentVisualMessage) {
+        setStatus(message);
+        currentVisualMessage = message;
+      }
+
+      announceForVoiceOver(direction);
+    }
+
+    function announceForVoiceOver(direction) {
+      if (!voiceOverEnabled || !voiceOverEnabled.checked) return;
+      if (!voiceOverLiveRegion) return;
+
+      const now = performance.now();
+
+      // Sama lyhyt ohje saa toistua korkeintaan noin 2,5 sekunnin välein.
+      if (direction === lastVoiceOverDirection && now - lastVoiceOverMs < 2500) {
+        return;
+      }
+
+      let text = "";
+      if (direction === "Vasen") text = "vasemmalle";
+      else if (direction === "Oikea") text = "oikealle";
+      else if (direction === "Keskellä") text = "keskellä";
+      else return;
+
+      lastVoiceOverDirection = direction;
+      lastVoiceOverMs = now;
+
+      voiceOverLiveRegion.textContent = "";
+      window.setTimeout(() => {
+        voiceOverLiveRegion.textContent = text;
+      }, 20);
     }
 
     function ensureAudioContext() {
@@ -480,6 +552,7 @@
       placeholder.style.display = "grid";
       clearOverlay();
 
+      lastVoiceOverDirection = "";
       setDirection("-", "Pysäytetty.");
     }
 
@@ -489,6 +562,7 @@
       offsetBar.style.width = "0%";
       confidenceValue.textContent = "0 %";
       confidenceBar.style.width = "0%";
+      lastVoiceOverDirection = "";
       setStatus("Mittaushistoria nollattu.");
     }
 
@@ -877,6 +951,13 @@
 
     thresholdInput.addEventListener("input", () => {
       thresholdValue.textContent = Number(thresholdInput.value).toFixed(2);
+    });
+
+    voiceOverEnabled.addEventListener("change", () => {
+      lastVoiceOverDirection = "";
+      if (!voiceOverEnabled.checked && voiceOverLiveRegion) {
+        voiceOverLiveRegion.textContent = "";
+      }
     });
 
     window.addEventListener("pagehide", stopCamera);
