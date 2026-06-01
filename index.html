@@ -1,701 +1,711 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="fi">
 <head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-<title>PathGuide – Polun Seuranta</title>
-<style>
-  @import url('https://fonts.googleapis.com/css2?family=Share+Tech+Mono&family=Rajdhani:wght@300;500;700&display=swap');
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <meta name="theme-color" content="#0f172a" />
+  <title>Polkuopas – selainprototyyppi</title>
+  <style>
+    :root {
+      --bg: #0f172a;
+      --panel: #111827;
+      --panel2: #1f2937;
+      --text: #f8fafc;
+      --muted: #cbd5e1;
+      --border: #334155;
+      --ok: #14532d;
+      --warn: #78350f;
+      --left: #1e3a8a;
+      --right: #581c87;
+      --danger: #7f1d1d;
+    }
 
-  :root {
-    --bg: #0a0d0f;
-    --panel: #0f1418;
-    --border: #1e2830;
-    --accent: #00e5ff;
-    --warn-left: #ff6b00;
-    --warn-right: #ff6b00;
-    --ok: #00ff88;
-    --danger: #ff2d55;
-    --text: #c8d8e0;
-    --dim: #3a4a55;
-  }
+    * {
+      box-sizing: border-box;
+    }
 
-  * { margin: 0; padding: 0; box-sizing: border-box; }
+    html, body {
+      margin: 0;
+      min-height: 100%;
+      background: var(--bg);
+      color: var(--text);
+      font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    }
 
-  body {
-    background: var(--bg);
-    color: var(--text);
-    font-family: 'Rajdhani', sans-serif;
-    height: 100dvh;
-    width: 100vw;
-    overflow: hidden;
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    justify-content: flex-start;
-    position: relative;
-  }
+    body {
+      padding: env(safe-area-inset-top) 14px env(safe-area-inset-bottom) 14px;
+    }
 
-  /* ─── HEADER ─── */
-  header {
-    width: 100%;
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    padding: 10px 16px 8px;
-    background: linear-gradient(180deg, rgba(0,229,255,0.06) 0%, transparent 100%);
-    border-bottom: 1px solid var(--border);
-    z-index: 10;
-    flex-shrink: 0;
-  }
+    main {
+      max-width: 980px;
+      margin: 0 auto;
+      padding: 14px 0 32px;
+    }
 
-  .logo {
-    font-family: 'Share Tech Mono', monospace;
-    font-size: 1.1rem;
-    color: var(--accent);
-    letter-spacing: 2px;
-    text-shadow: 0 0 12px rgba(0,229,255,0.5);
-  }
+    h1 {
+      margin: 0 0 8px;
+      font-size: clamp(1.5rem, 5vw, 2.3rem);
+      line-height: 1.1;
+    }
 
-  .status-dot {
-    width: 8px; height: 8px;
-    border-radius: 50%;
-    background: var(--dim);
-    box-shadow: none;
-    transition: all 0.3s;
-    flex-shrink: 0;
-  }
-  .status-dot.active {
-    background: var(--ok);
-    box-shadow: 0 0 8px var(--ok);
-    animation: pulse 2s infinite;
-  }
-  @keyframes pulse {
-    0%,100%{opacity:1} 50%{opacity:0.5}
-  }
+    p {
+      color: var(--muted);
+      line-height: 1.45;
+    }
 
-  .header-right {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    font-size: 0.75rem;
-    color: var(--dim);
-    font-family: 'Share Tech Mono', monospace;
-  }
+    .grid {
+      display: grid;
+      grid-template-columns: 1fr;
+      gap: 14px;
+    }
 
-  /* ─── VIDEO AREA ─── */
-  .camera-wrapper {
-    position: relative;
-    width: 100%;
-    flex: 1;
-    overflow: hidden;
-    background: #000;
-  }
+    @media (min-width: 850px) {
+      .grid {
+        grid-template-columns: minmax(0, 1fr) 340px;
+      }
+    }
 
-  video {
-    width: 100%;
-    height: 100%;
-    object-fit: cover;
-    display: block;
-  }
+    .card {
+      background: var(--panel);
+      border: 1px solid var(--border);
+      border-radius: 18px;
+      overflow: hidden;
+      box-shadow: 0 18px 40px rgba(0,0,0,0.25);
+    }
 
-  canvas#overlay {
-    position: absolute;
-    top: 0; left: 0;
-    width: 100%; height: 100%;
-    pointer-events: none;
-  }
+    .card-inner {
+      padding: 14px;
+    }
 
-  /* ─── CENTER RETICLE ─── */
-  .reticle {
-    position: absolute;
-    top: 50%; left: 50%;
-    transform: translate(-50%, -50%);
-    width: 60px; height: 60px;
-    pointer-events: none;
-  }
-  .reticle::before, .reticle::after {
-    content: '';
-    position: absolute;
-    border-color: rgba(0,229,255,0.6);
-    border-style: solid;
-  }
-  .reticle::before {
-    width: 20px; height: 20px;
-    top: 0; left: 0;
-    border-width: 2px 0 0 2px;
-  }
-  .reticle::after {
-    width: 20px; height: 20px;
-    bottom: 0; right: 0;
-    border-width: 0 2px 2px 0;
-  }
+    .video-wrap {
+      position: relative;
+      aspect-ratio: 16 / 9;
+      background: #000;
+      border-radius: 16px;
+      overflow: hidden;
+      border: 1px solid var(--border);
+    }
 
-  /* ─── DIRECTION ARROWS ─── */
-  .arrow-overlay {
-    position: absolute;
-    top: 0; left: 0; right: 0; bottom: 0;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    pointer-events: none;
-  }
+    video, #overlay {
+      position: absolute;
+      inset: 0;
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+    }
 
-  .arrow {
-    display: none;
-    font-size: 5rem;
-    filter: drop-shadow(0 0 20px currentColor);
-    animation: arrowPulse 0.6s ease-in-out infinite alternate;
-  }
-  .arrow.left { color: var(--warn-left); }
-  .arrow.right { color: var(--warn-right); }
-  .arrow.show { display: block; }
+    #overlay {
+      pointer-events: none;
+    }
 
-  @keyframes arrowPulse {
-    from { transform: scale(1); opacity: 0.8; }
-    to   { transform: scale(1.15); opacity: 1; }
-  }
+    .placeholder {
+      position: absolute;
+      inset: 0;
+      display: grid;
+      place-items: center;
+      text-align: center;
+      color: var(--muted);
+      padding: 22px;
+      background: radial-gradient(circle at center, rgba(30,41,59,0.9), rgba(0,0,0,0.95));
+    }
 
-  /* ─── FLASH OVERLAY ─── */
-  .flash {
-    position: absolute;
-    top: 0; left: 0; right: 0; bottom: 0;
-    opacity: 0;
-    pointer-events: none;
-    transition: opacity 0.1s;
-  }
-  .flash.left-flash  { background: linear-gradient(to right, rgba(255,107,0,0.35), transparent 60%); }
-  .flash.right-flash { background: linear-gradient(to left,  rgba(255,107,0,0.35), transparent 60%); }
-  .flash.ok-flash    { background: rgba(0,255,136,0.15); }
-  .flash.active { opacity: 1; }
+    .direction {
+      border: 1px solid var(--border);
+      border-radius: 18px;
+      padding: 16px;
+      background: var(--panel2);
+      margin-bottom: 12px;
+    }
 
-  /* ─── BOTTOM PANEL ─── */
-  .bottom-panel {
-    width: 100%;
-    background: var(--panel);
-    border-top: 1px solid var(--border);
-    padding: 10px 16px 12px;
-    z-index: 10;
-    flex-shrink: 0;
-  }
+    .direction .label {
+      font-size: 0.9rem;
+      opacity: 0.85;
+      margin-bottom: 3px;
+    }
 
-  .status-bar {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    margin-bottom: 8px;
-  }
+    .direction .value {
+      font-size: clamp(2rem, 10vw, 3.2rem);
+      font-weight: 800;
+      line-height: 1;
+    }
 
-  .direction-label {
-    font-family: 'Share Tech Mono', monospace;
-    font-size: 0.95rem;
-    letter-spacing: 1px;
-    color: var(--dim);
-    transition: color 0.3s;
-    min-width: 160px;
-  }
-  .direction-label.center { color: var(--ok); }
-  .direction-label.left   { color: var(--warn-left); }
-  .direction-label.right  { color: var(--warn-right); }
+    .state-center { background: var(--ok); }
+    .state-left { background: var(--left); }
+    .state-right { background: var(--right); }
+    .state-uncertain { background: var(--warn); }
+    .state-stopped { background: var(--panel2); }
 
-  .confidence-bar-wrap {
-    flex: 1;
-    margin: 0 12px;
-    height: 4px;
-    background: var(--border);
-    border-radius: 2px;
-    overflow: hidden;
-  }
-  .confidence-bar {
-    height: 100%;
-    background: var(--accent);
-    width: 0%;
-    transition: width 0.5s, background 0.3s;
-    border-radius: 2px;
-  }
+    .status {
+      min-height: 64px;
+      margin: 0 0 12px;
+      color: var(--text);
+      font-size: 1rem;
+    }
 
-  .fps-label {
-    font-family: 'Share Tech Mono', monospace;
-    font-size: 0.7rem;
-    color: var(--dim);
-  }
+    .controls {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 10px;
+      margin: 12px 0;
+    }
 
-  /* ─── BUTTON ROW ─── */
-  .btn-row {
-    display: flex;
-    gap: 10px;
-  }
+    button {
+      appearance: none;
+      border: 1px solid #64748b;
+      background: #e2e8f0;
+      color: #0f172a;
+      border-radius: 16px;
+      padding: 13px 12px;
+      font-size: 1rem;
+      font-weight: 750;
+      cursor: pointer;
+      min-height: 52px;
+    }
 
-  .btn {
-    flex: 1;
-    padding: 10px 0;
-    border: 1px solid var(--border);
-    border-radius: 6px;
-    background: transparent;
-    color: var(--text);
-    font-family: 'Rajdhani', sans-serif;
-    font-size: 0.9rem;
-    font-weight: 500;
-    letter-spacing: 1px;
-    cursor: pointer;
-    transition: all 0.2s;
-    text-transform: uppercase;
-  }
-  .btn:hover { border-color: var(--accent); color: var(--accent); }
-  .btn.primary {
-    background: var(--accent);
-    color: #000;
-    border-color: var(--accent);
-    font-weight: 700;
-  }
-  .btn.primary:hover { box-shadow: 0 0 16px rgba(0,229,255,0.4); }
-  .btn.stop {
-    border-color: var(--danger);
-    color: var(--danger);
-  }
-  .btn.stop:hover { background: rgba(255,45,85,0.1); }
-  .btn:disabled { opacity: 0.35; cursor: not-allowed; }
+    button.secondary {
+      background: #334155;
+      color: var(--text);
+    }
 
-  /* ─── SETUP SCREEN ─── */
-  #setup-screen {
-    position: absolute;
-    inset: 0;
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    justify-content: center;
-    background: var(--bg);
-    z-index: 20;
-    padding: 32px 24px;
-    gap: 20px;
-  }
-  #setup-screen.hidden { display: none; }
+    button.danger {
+      background: #fecaca;
+      color: #450a0a;
+    }
 
-  .big-icon {
-    font-size: 4rem;
-    filter: drop-shadow(0 0 20px rgba(0,229,255,0.4));
-  }
+    button:focus-visible, input:focus-visible {
+      outline: 4px solid #facc15;
+      outline-offset: 3px;
+    }
 
-  .setup-title {
-    font-size: 2rem;
-    font-weight: 700;
-    color: var(--accent);
-    letter-spacing: 2px;
-    text-align: center;
-    text-shadow: 0 0 20px rgba(0,229,255,0.3);
-  }
+    .metric {
+      display: flex;
+      justify-content: space-between;
+      gap: 12px;
+      color: var(--muted);
+      font-size: 0.95rem;
+      margin-top: 10px;
+    }
 
-  .setup-desc {
-    font-size: 0.95rem;
-    color: var(--dim);
-    text-align: center;
-    line-height: 1.6;
-    max-width: 320px;
-  }
+    .bar {
+      height: 9px;
+      border-radius: 999px;
+      background: #020617;
+      overflow: hidden;
+      margin-top: 6px;
+      border: 1px solid #1e293b;
+    }
 
-  .api-input-wrap {
-    width: 100%;
-    max-width: 360px;
-  }
-  .api-input-wrap label {
-    display: block;
-    font-family: 'Share Tech Mono', monospace;
-    font-size: 0.75rem;
-    color: var(--dim);
-    margin-bottom: 6px;
-    letter-spacing: 1px;
-  }
-  .api-input-wrap input {
-    width: 100%;
-    background: var(--panel);
-    border: 1px solid var(--border);
-    border-radius: 6px;
-    padding: 10px 14px;
-    color: var(--text);
-    font-family: 'Share Tech Mono', monospace;
-    font-size: 0.85rem;
-    outline: none;
-    transition: border-color 0.2s;
-  }
-  .api-input-wrap input:focus { border-color: var(--accent); }
-  .api-input-wrap input::placeholder { color: var(--dim); }
+    .bar > span {
+      display: block;
+      height: 100%;
+      width: 0;
+      background: #e2e8f0;
+    }
 
-  .hint {
-    font-size: 0.75rem;
-    color: var(--dim);
-    text-align: center;
-    opacity: 0.6;
-  }
+    label {
+      display: block;
+      color: var(--muted);
+      margin-top: 14px;
+      line-height: 1.4;
+    }
 
-  /* ─── INTERVAL SELECTOR ─── */
-  .interval-row {
-    display: flex;
-    gap: 8px;
-    width: 100%;
-    max-width: 360px;
-    flex-wrap: wrap;
-  }
-  .interval-btn {
-    flex: 1;
-    min-width: 60px;
-    padding: 7px 4px;
-    border: 1px solid var(--border);
-    border-radius: 6px;
-    background: transparent;
-    color: var(--dim);
-    font-family: 'Rajdhani', sans-serif;
-    font-size: 0.85rem;
-    cursor: pointer;
-    transition: all 0.2s;
-    text-align: center;
-  }
-  .interval-btn.selected {
-    border-color: var(--accent);
-    color: var(--accent);
-    background: rgba(0,229,255,0.07);
-  }
+    input[type="range"] {
+      width: 100%;
+      margin-top: 8px;
+    }
 
-  /* ─── SCAN LINE EFFECT ─── */
-  .scanlines {
-    position: absolute;
-    inset: 0;
-    background: repeating-linear-gradient(
-      to bottom,
-      transparent 0px,
-      transparent 3px,
-      rgba(0,0,0,0.08) 3px,
-      rgba(0,0,0,0.08) 4px
-    );
-    pointer-events: none;
-    z-index: 5;
-  }
-</style>
+    .checkrow {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      color: var(--muted);
+      margin: 12px 0;
+    }
+
+    .checkrow input {
+      width: 20px;
+      height: 20px;
+    }
+
+    .notice {
+      background: #1e293b;
+      border: 1px solid var(--border);
+      border-radius: 16px;
+      padding: 13px;
+      margin-top: 14px;
+    }
+
+    .notice strong {
+      color: #fff;
+    }
+
+    .hidden-canvas {
+      display: none;
+    }
+
+    code {
+      color: #fef3c7;
+    }
+  </style>
 </head>
 <body>
+  <main>
+    <header>
+      <h1>Polkuopas – ensimmäinen selainprototyyppi</h1>
+      <p>
+        Tämä testiversio käyttää puhelimen kameraa, arvioi kuvan alaosasta kulkuväylän sijaintia
+        ja antaa vasen/oikea-stereoäänimerkin, jos havaittu tie tai polku ei ole keskellä.
+      </p>
+    </header>
 
-<!-- SETUP SCREEN -->
-<div id="setup-screen">
-  <div class="big-icon">🧭</div>
-  <div class="setup-title">PATHGUIDE</div>
-  <div class="setup-desc">Sovellus tunnistaa tien tai polun kamerakuvasta ja ilmoittaa äänimerkeillä, jos sinun pitää kääntyä.</div>
+    <section class="grid" aria-label="Polkuoppaan testinäkymä">
+      <div class="card">
+        <div class="card-inner">
+          <div class="video-wrap">
+            <video id="video" playsinline muted aria-label="Kameran esikatselu"></video>
+            <canvas id="overlay" aria-hidden="true"></canvas>
+            <div id="placeholder" class="placeholder">
+              <div>
+                <div style="font-size:3rem; line-height:1;">📷</div>
+                <p>Kamera ei ole käynnissä.</p>
+              </div>
+            </div>
+          </div>
+          <canvas id="analysisCanvas" class="hidden-canvas"></canvas>
+        </div>
+      </div>
 
-  <div class="api-input-wrap">
-    <label>ANTHROPIC API KEY</label>
-    <input type="password" id="api-key-input" placeholder="sk-ant-..." autocomplete="off">
-  </div>
+      <aside class="card">
+        <div class="card-inner">
+          <div id="directionBox" class="direction state-stopped" aria-live="polite">
+            <div class="label">Ohjaus</div>
+            <div id="directionValue" class="value">-</div>
+          </div>
 
-  <div class="api-input-wrap" style="margin-top: -8px;">
-    <label>ANALYYSIVÄLI</label>
-    <div class="interval-row">
-      <button class="interval-btn" data-val="1500">1.5s</button>
-      <button class="interval-btn selected" data-val="2500">2.5s</button>
-      <button class="interval-btn" data-val="4000">4s</button>
-      <button class="interval-btn" data-val="6000">6s</button>
-    </div>
-  </div>
+          <p id="status" class="status" aria-live="polite">Ei käynnissä.</p>
 
-  <button class="btn primary" id="start-btn" style="max-width:360px;width:100%;padding:14px 0;font-size:1rem;">
-    KÄYNNISTÄ KAMERA
-  </button>
-  <div class="hint">Vaatii Anthropic API-avaimen · Toimii HTTPS-yhteydellä</div>
-</div>
+          <div class="metric">
+            <span>Poikkeama</span>
+            <span id="offsetValue">0.00</span>
+          </div>
+          <div class="bar" aria-hidden="true"><span id="offsetBar"></span></div>
 
-<!-- MAIN APP -->
-<header>
-  <div class="logo">PATHGUIDE</div>
-  <div class="header-right">
-    <div id="status-text" style="font-size:0.7rem;">ODOTTAA</div>
-    <div class="status-dot" id="status-dot"></div>
-  </div>
-</header>
+          <div class="metric">
+            <span>Tunnistusvarmuus</span>
+            <span id="confidenceValue">0 %</span>
+          </div>
+          <div class="bar" aria-hidden="true"><span id="confidenceBar"></span></div>
 
-<div class="camera-wrapper">
-  <video id="video" autoplay muted playsinline></video>
-  <canvas id="overlay"></canvas>
-  <div class="scanlines"></div>
-  <div class="reticle"></div>
-  <div class="arrow-overlay">
-    <span class="arrow left" id="arrow-left">◀</span>
-    <span class="arrow right" id="arrow-right">▶</span>
-  </div>
-  <div class="flash left-flash"  id="flash-left"></div>
-  <div class="flash right-flash" id="flash-right"></div>
-  <div class="flash ok-flash"    id="flash-ok"></div>
-</div>
+          <div class="controls">
+            <button id="startButton">Aloita</button>
+            <button id="stopButton" class="danger">Pysäytä</button>
+          </div>
 
-<div class="bottom-panel">
-  <div class="status-bar">
-    <div class="direction-label" id="dir-label">– ODOTETAAN ANALYYSIA –</div>
-    <div class="confidence-bar-wrap">
-      <div class="confidence-bar" id="conf-bar"></div>
-    </div>
-    <div class="fps-label" id="fps-label">–</div>
-  </div>
-  <div class="btn-row">
-    <button class="btn stop" id="stop-btn" disabled>LOPETA</button>
-    <button class="btn" id="settings-btn">ASETUKSET</button>
-  </div>
-</div>
+          <button id="audioTestButton" class="secondary" style="width:100%;">Äänitesti: vasen, sitten oikea</button>
 
-<canvas id="capture-canvas" style="display:none;"></canvas>
+          <label for="threshold">
+            Ohjauskynnys: <span id="thresholdValue">0.14</span>
+            <input id="threshold" type="range" min="0.06" max="0.30" step="0.01" value="0.14" />
+          </label>
 
-<script>
-// ── State ──────────────────────────────────────────────────────────────────
-let apiKey = '';
-let intervalMs = 2500;
-let stream = null;
-let analysisTimer = null;
-let audioCtx = null;
-let lastDirection = 'center';
-let analyzing = false;
-let lastAnalysisTime = 0;
+          <label class="checkrow">
+            <input id="beepsEnabled" type="checkbox" checked />
+            Äänimerkit käytössä
+          </label>
 
-// ── DOM ────────────────────────────────────────────────────────────────────
-const setupScreen  = document.getElementById('setup-screen');
-const startBtn     = document.getElementById('start-btn');
-const stopBtn      = document.getElementById('stop-btn');
-const settingsBtn  = document.getElementById('settings-btn');
-const apiInput     = document.getElementById('api-key-input');
-const video        = document.getElementById('video');
-const captureCanvas = document.getElementById('capture-canvas');
-const overlayCanvas = document.getElementById('overlay');
-const dirLabel     = document.getElementById('dir-label');
-const confBar      = document.getElementById('conf-bar');
-const fpsLabel     = document.getElementById('fps-label');
-const statusDot    = document.getElementById('status-dot');
-const statusText   = document.getElementById('status-text');
-const arrowLeft    = document.getElementById('arrow-left');
-const arrowRight   = document.getElementById('arrow-right');
-const flashLeft    = document.getElementById('flash-left');
-const flashRight   = document.getElementById('flash-right');
-const flashOk      = document.getElementById('flash-ok');
+          <label class="checkrow">
+            <input id="debugEnabled" type="checkbox" checked />
+            Näytä kehittäjän apuviivat
+          </label>
 
-// ── Interval selector ──────────────────────────────────────────────────────
-document.querySelectorAll('.interval-btn').forEach(btn => {
-  btn.addEventListener('click', () => {
-    document.querySelectorAll('.interval-btn').forEach(b => b.classList.remove('selected'));
-    btn.classList.add('selected');
-    intervalMs = parseInt(btn.dataset.val);
-  });
-});
+          <button id="resetButton" class="secondary" style="width:100%;">Nollaa mittaushistoria</button>
+        </div>
+      </aside>
+    </section>
 
-// ── Load saved key ─────────────────────────────────────────────────────────
-const savedKey = sessionStorage.getItem('pg_apikey');
-if (savedKey) apiInput.value = savedKey;
+    <section class="notice">
+      <p>
+        <strong>Turvahuomio:</strong> tämä on vain tekninen prototyyppi. Se ei tunnista luotettavasti esteitä,
+        portaita, pudotuksia, liikennettä, ihmisiä, pyöriä, autoja tai muita vaaratilanteita. Testaa vain
+        turvallisessa ympäristössä ja käytä tarvittaessa avustajaa.
+      </p>
+      <p>
+        iPhonella avaa sivu Safarissa GitHub Pages -osoitteesta, ei GitHubin tiedostonäkymästä.
+        Kameran käyttö vaatii HTTPS-yhteyden.
+      </p>
+    </section>
+  </main>
 
-// ── Start ──────────────────────────────────────────────────────────────────
-startBtn.addEventListener('click', async () => {
-  apiKey = apiInput.value.trim();
-  if (!apiKey) { alert('Syötä Anthropic API-avain.'); return; }
-  sessionStorage.setItem('pg_apikey', apiKey);
-  await startCamera();
-});
+  <script>
+    "use strict";
 
-async function startCamera() {
-  try {
-    stream = await navigator.mediaDevices.getUserMedia({
-      video: { facingMode: 'environment', width: { ideal: 1280 }, height: { ideal: 720 } },
-      audio: false
+    const video = document.getElementById("video");
+    const overlay = document.getElementById("overlay");
+    const analysisCanvas = document.getElementById("analysisCanvas");
+    const placeholder = document.getElementById("placeholder");
+
+    const startButton = document.getElementById("startButton");
+    const stopButton = document.getElementById("stopButton");
+    const audioTestButton = document.getElementById("audioTestButton");
+    const resetButton = document.getElementById("resetButton");
+
+    const statusEl = document.getElementById("status");
+    const directionBox = document.getElementById("directionBox");
+    const directionValue = document.getElementById("directionValue");
+    const offsetValue = document.getElementById("offsetValue");
+    const offsetBar = document.getElementById("offsetBar");
+    const confidenceValue = document.getElementById("confidenceValue");
+    const confidenceBar = document.getElementById("confidenceBar");
+
+    const thresholdInput = document.getElementById("threshold");
+    const thresholdValue = document.getElementById("thresholdValue");
+    const beepsEnabled = document.getElementById("beepsEnabled");
+    const debugEnabled = document.getElementById("debugEnabled");
+
+    let stream = null;
+    let animationId = null;
+    let audioCtx = null;
+    let lastBeepMs = 0;
+    let running = false;
+    let history = [];
+
+    function setStatus(text) {
+      statusEl.textContent = text;
+    }
+
+    function setDirection(direction, message) {
+      directionValue.textContent = direction;
+      directionBox.className = "direction";
+
+      if (direction === "Vasen") directionBox.classList.add("state-left");
+      else if (direction === "Oikea") directionBox.classList.add("state-right");
+      else if (direction === "Keskellä") directionBox.classList.add("state-center");
+      else if (direction === "Epävarma") directionBox.classList.add("state-uncertain");
+      else directionBox.classList.add("state-stopped");
+
+      setStatus(message);
+    }
+
+    function ensureAudioContext() {
+      if (!audioCtx) {
+        const AudioContextClass = window.AudioContext || window.webkitAudioContext;
+        if (!AudioContextClass) {
+          setStatus("Tämä selain ei tue Web Audio API:a.");
+          return null;
+        }
+        audioCtx = new AudioContextClass();
+      }
+
+      if (audioCtx.state === "suspended") {
+        audioCtx.resume();
+      }
+
+      return audioCtx;
+    }
+
+    function playBeep(pan, severity, kind) {
+      if (!beepsEnabled.checked) return;
+
+      const ctx = ensureAudioContext();
+      if (!ctx) return;
+
+      const now = ctx.currentTime;
+      const osc = ctx.createOscillator();
+      const gain = ctx.createGain();
+      const hasStereoPanner = typeof ctx.createStereoPanner === "function";
+      const panner = hasStereoPanner ? ctx.createStereoPanner() : null;
+
+      osc.type = kind === "uncertain" ? "triangle" : "sine";
+      osc.frequency.value = kind === "uncertain" ? 220 : 520 + Math.min(severity, 1) * 260;
+
+      gain.gain.setValueAtTime(0.0001, now);
+      gain.gain.exponentialRampToValueAtTime(kind === "uncertain" ? 0.075 : 0.13, now + 0.02);
+      gain.gain.exponentialRampToValueAtTime(0.0001, now + 0.16);
+
+      if (panner) {
+        panner.pan.value = pan;
+        osc.connect(gain);
+        gain.connect(panner);
+        panner.connect(ctx.destination);
+      } else {
+        osc.connect(gain);
+        gain.connect(ctx.destination);
+      }
+
+      osc.start(now);
+      osc.stop(now + 0.18);
+    }
+
+    async function startCamera() {
+      try {
+        ensureAudioContext();
+
+        if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+          setStatus("Tämä selain ei tue kameran käyttöä getUserMedia-rajapinnalla.");
+          return;
+        }
+
+        setStatus("Pyydetään kameran käyttöoikeutta...");
+
+        stream = await navigator.mediaDevices.getUserMedia({
+          video: {
+            facingMode: { ideal: "environment" },
+            width: { ideal: 1280 },
+            height: { ideal: 720 }
+          },
+          audio: false
+        });
+
+        video.srcObject = stream;
+        await video.play();
+
+        placeholder.style.display = "none";
+        running = true;
+        setDirection("-", "Kamera käynnissä. Suuntaa kamera tiehen, polkuun tai käytävään.");
+        loop();
+      } catch (error) {
+        console.error(error);
+        setStatus("Kameraa ei voitu käynnistää. Tarkista Safarin kamerakäyttöoikeus ja että sivu avataan HTTPS-osoitteesta.");
+      }
+    }
+
+    function stopCamera() {
+      running = false;
+
+      if (animationId) {
+        cancelAnimationFrame(animationId);
+        animationId = null;
+      }
+
+      if (stream) {
+        stream.getTracks().forEach(track => track.stop());
+        stream = null;
+      }
+
+      video.srcObject = null;
+      placeholder.style.display = "grid";
+      clearOverlay();
+
+      setDirection("-", "Pysäytetty.");
+    }
+
+    function resetHistory() {
+      history = [];
+      offsetValue.textContent = "0.00";
+      offsetBar.style.width = "0%";
+      confidenceValue.textContent = "0 %";
+      confidenceBar.style.width = "0%";
+      setStatus("Mittaushistoria nollattu.");
+    }
+
+    function loop() {
+      analyzeFrame();
+      if (running) animationId = requestAnimationFrame(loop);
+    }
+
+    function analyzeFrame() {
+      if (!video || video.readyState < 2) return;
+
+      const vw = video.videoWidth || 640;
+      const vh = video.videoHeight || 480;
+      if (!vw || !vh) return;
+
+      const analysisW = 240;
+      const analysisH = Math.round((vh / vw) * analysisW);
+
+      analysisCanvas.width = analysisW;
+      analysisCanvas.height = analysisH;
+
+      const ctx = analysisCanvas.getContext("2d", { willReadFrequently: true });
+      ctx.drawImage(video, 0, 0, analysisW, analysisH);
+
+      const image = ctx.getImageData(0, 0, analysisW, analysisH);
+      const data = image.data;
+
+      const yStart = Math.floor(analysisH * 0.48);
+      const yEnd = Math.floor(analysisH * 0.94);
+      const bins = new Array(analysisW).fill(0);
+      const counts = new Array(analysisW).fill(0);
+
+      for (let y = yStart + 1; y < yEnd - 1; y += 2) {
+        for (let x = 1; x < analysisW - 1; x += 2) {
+          const idx = (y * analysisW + x) * 4;
+          const r = data[idx];
+          const g = data[idx + 1];
+          const b = data[idx + 2];
+          const lum = 0.2126 * r + 0.7152 * g + 0.0722 * b;
+
+          const idxL = (y * analysisW + (x - 1)) * 4;
+          const idxR = (y * analysisW + (x + 1)) * 4;
+          const idxU = ((y - 1) * analysisW + x) * 4;
+          const idxD = ((y + 1) * analysisW + x) * 4;
+
+          const lumL = 0.2126 * data[idxL] + 0.7152 * data[idxL + 1] + 0.0722 * data[idxL + 2];
+          const lumR = 0.2126 * data[idxR] + 0.7152 * data[idxR + 1] + 0.0722 * data[idxR + 2];
+          const lumU = 0.2126 * data[idxU] + 0.7152 * data[idxU + 1] + 0.0722 * data[idxU + 2];
+          const lumD = 0.2126 * data[idxD] + 0.7152 * data[idxD + 1] + 0.0722 * data[idxD + 2];
+
+          const edge = Math.abs(lumR - lumL) + Math.abs(lumD - lumU);
+          const saturation = Math.max(r, g, b) - Math.min(r, g, b);
+
+          let score = 0;
+          score += Math.max(0, 80 - edge) / 80;
+          score += Math.max(0, 90 - saturation) / 90;
+          score += lum > 45 ? 0.35 : 0;
+
+          const verticalWeight = 0.65 + 0.7 * ((y - yStart) / Math.max(1, yEnd - yStart));
+          bins[x] += score * verticalWeight;
+          counts[x] += verticalWeight;
+        }
+      }
+
+      const smoothed = bins.map((sum, i) => sum / Math.max(1, counts[i]));
+      const radius = 8;
+      const profile = smoothed.map((_, i) => {
+        let s = 0;
+        let c = 0;
+        for (let k = -radius; k <= radius; k++) {
+          const j = i + k;
+          if (j >= 0 && j < analysisW) {
+            s += smoothed[j];
+            c++;
+          }
+        }
+        return s / Math.max(1, c);
+      });
+
+      const maxScore = Math.max(...profile);
+      const avgScore = profile.reduce((a, b) => a + b, 0) / profile.length;
+      const minScore = Math.min(...profile);
+      const dynamicThreshold = avgScore + (maxScore - avgScore) * 0.38;
+
+      let weightedX = 0;
+      let totalWeight = 0;
+      for (let x = 0; x < analysisW; x++) {
+        const weight = Math.max(0, profile[x] - dynamicThreshold);
+        weightedX += x * weight;
+        totalWeight += weight;
+      }
+
+      let centerX = analysisW / 2;
+      let conf = 0;
+
+      if (totalWeight > 0.1) {
+        centerX = weightedX / totalWeight;
+        conf = Math.min(1, (maxScore - avgScore) / Math.max(0.001, avgScore - minScore + 0.08));
+      }
+
+      const rawOffset = (centerX - analysisW / 2) / (analysisW / 2);
+
+      history.push({ rawOffset, conf });
+      if (history.length > 10) history.shift();
+
+      const usable = history.filter(v => v.conf > 0.18);
+      const smoothOffset = usable.length
+        ? usable.reduce((a, b) => a + b.rawOffset, 0) / usable.length
+        : rawOffset;
+
+      const smoothConf = history.reduce((a, b) => a + b.conf, 0) / Math.max(1, history.length);
+
+      offsetValue.textContent = smoothOffset.toFixed(2);
+      offsetBar.style.width = Math.min(100, Math.abs(smoothOffset) * 100) + "%";
+      confidenceValue.textContent = Math.round(smoothConf * 100) + " %";
+      confidenceBar.style.width = Math.min(100, smoothConf * 100) + "%";
+
+      const threshold = Number(thresholdInput.value);
+
+      let direction = "Keskellä";
+      let message = "Kulkuväylä vaikuttaa olevan keskellä.";
+
+      if (smoothConf < 0.2) {
+        direction = "Epävarma";
+        message = "Polkua tai tietä ei tunnisteta luotettavasti.";
+      } else if (smoothOffset < -threshold) {
+        direction = "Vasen";
+        message = "Kulkuväylä on vasemmalla. Käänny vasemmalle.";
+      } else if (smoothOffset > threshold) {
+        direction = "Oikea";
+        message = "Kulkuväylä on oikealla. Käänny oikealle.";
+      }
+
+      setDirection(direction, message);
+
+      const nowMs = performance.now();
+      const absOffset = Math.abs(smoothOffset);
+      const interval = Math.max(240, 900 - absOffset * 1000);
+
+      if (nowMs - lastBeepMs > interval) {
+        if (direction === "Vasen") {
+          playBeep(-1, absOffset, "guide");
+          lastBeepMs = nowMs;
+        } else if (direction === "Oikea") {
+          playBeep(1, absOffset, "guide");
+          lastBeepMs = nowMs;
+        } else if (direction === "Epävarma") {
+          playBeep(0, 0.5, "uncertain");
+          lastBeepMs = nowMs;
+        }
+      }
+
+      drawOverlay(centerX / analysisW, smoothOffset, smoothConf);
+    }
+
+    function clearOverlay() {
+      const ctx = overlay.getContext("2d");
+      ctx.clearRect(0, 0, overlay.width, overlay.height);
+    }
+
+    function drawOverlay(centerRatio, smoothOffset, smoothConf) {
+      const rect = video.getBoundingClientRect();
+      overlay.width = Math.max(1, Math.round(rect.width));
+      overlay.height = Math.max(1, Math.round(rect.height));
+
+      const ctx = overlay.getContext("2d");
+      const w = overlay.width;
+      const h = overlay.height;
+
+      ctx.clearRect(0, 0, w, h);
+
+      if (!debugEnabled.checked) return;
+
+      ctx.lineWidth = 3;
+      ctx.strokeStyle = "rgba(255,255,255,0.85)";
+      ctx.beginPath();
+      ctx.moveTo(w / 2, 0);
+      ctx.lineTo(w / 2, h);
+      ctx.stroke();
+
+      const pathX = centerRatio * w;
+      ctx.strokeStyle = smoothConf < 0.2 ? "rgba(255,190,0,0.96)" : "rgba(0,255,190,0.96)";
+      ctx.beginPath();
+      ctx.moveTo(pathX, h * 0.45);
+      ctx.lineTo(pathX, h);
+      ctx.stroke();
+
+      ctx.fillStyle = "rgba(0,0,0,0.62)";
+      ctx.fillRect(12, 12, 260, 86);
+      ctx.fillStyle = "white";
+      ctx.font = "15px system-ui, -apple-system, sans-serif";
+      ctx.fillText("Poikkeama: " + smoothOffset.toFixed(2), 24, 40);
+      ctx.fillText("Varmuus: " + Math.round(smoothConf * 100) + " %", 24, 64);
+      ctx.fillText("Kynnys: " + Number(thresholdInput.value).toFixed(2), 24, 88);
+    }
+
+    startButton.addEventListener("click", startCamera);
+    stopButton.addEventListener("click", stopCamera);
+    resetButton.addEventListener("click", resetHistory);
+
+    audioTestButton.addEventListener("click", () => {
+      ensureAudioContext();
+      playBeep(-1, 1, "guide");
+      setTimeout(() => playBeep(1, 1, "guide"), 500);
     });
-    video.srcObject = stream;
-    await new Promise(r => video.onloadedmetadata = r);
-    video.play();
 
-    setupScreen.classList.add('hidden');
-    stopBtn.disabled = false;
-    statusDot.classList.add('active');
-    statusText.textContent = 'AKTIIVINEN';
-
-    initAudio();
-    scheduleAnalysis();
-  } catch (e) {
-    alert('Kameran käyttö epäonnistui: ' + e.message);
-  }
-}
-
-// ── Stop ───────────────────────────────────────────────────────────────────
-stopBtn.addEventListener('click', stopApp);
-settingsBtn.addEventListener('click', () => { stopApp(); });
-
-function stopApp() {
-  clearTimeout(analysisTimer);
-  if (stream) { stream.getTracks().forEach(t => t.stop()); stream = null; }
-  video.srcObject = null;
-  statusDot.classList.remove('active');
-  statusText.textContent = 'PYSÄYTETTY';
-  stopBtn.disabled = true;
-  setupScreen.classList.remove('hidden');
-  setDirection('center', 0);
-}
-
-// ── Audio ──────────────────────────────────────────────────────────────────
-function initAudio() {
-  if (audioCtx) return;
-  audioCtx = new (window.AudioContext || window.webkitAudioContext)();
-}
-
-function playBeep(direction) {
-  if (!audioCtx) return;
-  const pan = new StereoPannerNode(audioCtx, { pan: direction === 'left' ? -1 : 1 });
-  const osc = audioCtx.createOscillator();
-  const gain = audioCtx.createGain();
-
-  osc.type = direction === 'left' ? 'sine' : 'sine';
-  osc.frequency.value = direction === 'left' ? 440 : 660;
-  gain.gain.setValueAtTime(0.0001, audioCtx.currentTime);
-  gain.gain.exponentialRampToValueAtTime(0.4, audioCtx.currentTime + 0.05);
-  gain.gain.exponentialRampToValueAtTime(0.0001, audioCtx.currentTime + 0.35);
-
-  osc.connect(gain).connect(pan).connect(audioCtx.destination);
-  osc.start();
-  osc.stop(audioCtx.currentTime + 0.4);
-}
-
-function playCenterOk() {
-  if (!audioCtx) return;
-  [523, 659, 784].forEach((freq, i) => {
-    const osc = audioCtx.createOscillator();
-    const gain = audioCtx.createGain();
-    const t = audioCtx.currentTime + i * 0.08;
-    osc.frequency.value = freq;
-    gain.gain.setValueAtTime(0.0001, t);
-    gain.gain.exponentialRampToValueAtTime(0.2, t + 0.04);
-    gain.gain.exponentialRampToValueAtTime(0.0001, t + 0.2);
-    osc.connect(gain).connect(audioCtx.destination);
-    osc.start(t); osc.stop(t + 0.25);
-  });
-}
-
-// ── UI Direction ───────────────────────────────────────────────────────────
-function setDirection(dir, confidence) {
-  arrowLeft.classList.remove('show');
-  arrowRight.classList.remove('show');
-  [flashLeft, flashRight, flashOk].forEach(f => f.classList.remove('active'));
-  dirLabel.className = 'direction-label';
-
-  confBar.style.width = (confidence * 100) + '%';
-  confBar.style.background = dir === 'center' ? 'var(--ok)' : 'var(--warn-left)';
-
-  if (dir === 'left') {
-    arrowLeft.classList.add('show');
-    flashLeft.classList.add('active');
-    dirLabel.classList.add('left');
-    dirLabel.textContent = '◀  KÄÄNNY VASEMMALLE';
-  } else if (dir === 'right') {
-    arrowRight.classList.add('show');
-    flashRight.classList.add('active');
-    dirLabel.classList.add('right');
-    dirLabel.textContent = '  KÄÄNNY OIKEALLE ▶';
-  } else {
-    dirLabel.classList.add('center');
-    dirLabel.textContent = '✓  POLKU KESKELLÄ';
-    if (lastDirection !== 'center') flashOk.classList.add('active');
-  }
-
-  lastDirection = dir;
-}
-
-// ── Capture frame ──────────────────────────────────────────────────────────
-function captureBase64() {
-  const w = video.videoWidth || 640;
-  const h = video.videoHeight || 480;
-  captureCanvas.width  = Math.round(w * 0.5);
-  captureCanvas.height = Math.round(h * 0.5);
-  const ctx = captureCanvas.getContext('2d');
-  ctx.drawImage(video, 0, 0, captureCanvas.width, captureCanvas.height);
-  const dataUrl = captureCanvas.toDataURL('image/jpeg', 0.7);
-  return dataUrl.split(',')[1];
-}
-
-// ── Analysis ───────────────────────────────────────────────────────────────
-function scheduleAnalysis() {
-  analysisTimer = setTimeout(async () => {
-    if (stream && !analyzing) await runAnalysis();
-    if (stream) scheduleAnalysis();
-  }, intervalMs);
-}
-
-async function runAnalysis() {
-  analyzing = true;
-  const t0 = Date.now();
-  statusText.textContent = 'ANALYSOI...';
-
-  let imageData;
-  try { imageData = captureBase64(); }
-  catch (e) { analyzing = false; statusText.textContent = 'AKTIIVINEN'; return; }
-
-  const prompt = `You are a path-detection assistant for a navigation aid app.
-Analyze this camera image taken by someone walking on a path, road, or trail.
-
-Determine:
-1. Is there a visible path/road/trail in the image?
-2. Where is the center of the path relative to the image center?
-
-Respond ONLY with a JSON object (no markdown, no extra text):
-{
-  "pathFound": true/false,
-  "direction": "left" | "center" | "right",
-  "confidence": 0.0–1.0,
-  "note": "brief explanation in Finnish (max 8 words)"
-}
-
-Rules:
-- direction = "left" if the path center is clearly left of image center (user should turn left)
-- direction = "right" if the path center is clearly right of image center (user should turn right)  
-- direction = "center" if path is roughly centered (within middle 30% of image width)
-- If no path found, set pathFound=false and direction="center"`;
-
-  try {
-    const res = await fetch('https://api.anthropic.com/v1/messages', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'x-api-key': apiKey,
-        'anthropic-version': '2023-06-01',
-        'anthropic-dangerous-direct-browser-access': 'true'
-      },
-      body: JSON.stringify({
-        model: 'claude-sonnet-4-20250514',
-        max_tokens: 150,
-        messages: [{
-          role: 'user',
-          content: [
-            { type: 'image', source: { type: 'base64', media_type: 'image/jpeg', data: imageData } },
-            { type: 'text', text: prompt }
-          ]
-        }]
-      })
+    thresholdInput.addEventListener("input", () => {
+      thresholdValue.textContent = Number(thresholdInput.value).toFixed(2);
     });
 
-    const data = await res.json();
-    const elapsed = Date.now() - t0;
-    fpsLabel.textContent = (elapsed / 1000).toFixed(1) + 's';
-
-    if (data.error) throw new Error(data.error.message);
-
-    const text = data.content.map(b => b.text || '').join('');
-    const clean = text.replace(/```json|```/g, '').trim();
-    const result = JSON.parse(clean);
-
-    const dir = result.pathFound ? (result.direction || 'center') : 'center';
-    const conf = result.confidence ?? 0.5;
-
-    setDirection(dir, conf);
-
-    if (dir === 'left')  { playBeep('left'); }
-    else if (dir === 'right') { playBeep('right'); }
-    else if (lastDirection !== 'center' && dir === 'center') { playCenterOk(); }
-
-    statusText.textContent = 'AKTIIVINEN';
-  } catch (e) {
-    console.error('Analysis error:', e);
-    statusText.textContent = 'VIRHE';
-    dirLabel.textContent = '⚠ ' + (e.message || 'Analyysivirhe').substring(0, 30);
-  }
-
-  lastAnalysisTime = Date.now();
-  analyzing = false;
-}
-</script>
+    window.addEventListener("pagehide", stopCamera);
+  </script>
 </body>
 </html>
