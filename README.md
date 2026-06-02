@@ -1,19 +1,22 @@
-# Polkuopas - kehitysversio 6
+# Polkuopas - kehitysversio 10
 
-Muutokset versioon 5 nähden:
-- Kolme reittimoodia: Metsäpolku, Hiekkatie ja Asfaltti.
-- Moodikohtaiset pisteytykset eri pintatyypeille.
-- Metsäpoluille paikallinen tekstuurianalyysi.
-- Hiekalle ja asfaltille omat väri- ja tasaisuuspainotukset.
-- Dynaamisempi perspektiiviportti ja eksponentiaalinen liukuva keskiarvo.
-- Kameran esikatselu ja kehittäjän apuviivat poistettu.
-- Sivun lopun kehitysmuistiinpano poistettu.
-- VoiceOverin keskellä-puhe poistettu.
-- Asfalttimoodiin lisätty suojatien tunnistus.
-- Suojatien alkaessa ja päättyessä bling-ääni sekä valinnainen VoiceOver-ilmoitus.
-- Suojatien vinoja poikkiviivoja käytetään vasen/oikea-ohjauksen tukena.
+Muutokset versioon 9 nähden:
+- Metsäpolkumoodiin lisätty varovaisempi "polku löytyy / ei löydy" -portti.
+- Jos metsäpolkua ei tunnisteta riittävän varmasti, sovellus ei anna vasen/oikea-ohjausääniä.
+- Suojatien tunnistus on tiukempi:
+  - vaaditaan vähintään kolme vaaleaa tai vaaleanharmaata viivaa
+  - viivojen pitää olla erillisiä
+  - viivojen pitää olla samansuuntaisia / rinnakkaisia
+  - viivojen välistyksen pitää olla uskottava
+  - havainto vahvistetaan useammassa peräkkäisessä analyysissä ennen ilmoitusta
+- Esteentunnistus on varovaisempi:
+  - tummuus yksin ei enää riitä esteeksi
+  - metsäpolkumoodissa esteeksi hyväksytään ensisijaisesti polun poikki kulkeva pitkulainen kappale
+  - sivukasvillisuuden aiheuttamia virhehälytyksiä on pyritty vähentämään
+  - muissa moodeissa este vaatii kokoa, reunaa/tekstuuria ja ajallista vahvistusta
+- Estehälytys aktivoituu vasta, kun sama este-ehdokas on havaittu useamman analyysiruudun ajan.
 
 Käyttöönotto:
-1. Korvaa GitHub-repositoryn juuressa oleva index.html tällä tiedostolla.
+1. Korvaa GitHub-repositoryn juuressa oleva `index.html` tällä tiedostolla.
 2. Commitoi muutos.
 3. Avaa GitHub Pages -osoite iPhonen Safarissa.
