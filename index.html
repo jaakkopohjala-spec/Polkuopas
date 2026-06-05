@@ -4,7 +4,7 @@
   <meta charset="utf-8"/>
   <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"/>
   <meta name="theme-color" content="#0f172a"/>
-  <title>Polkuopas – v12</title>
+  <title>Polkuopas – v13</title>
   <style>
     :root{
       --bg:#0f172a;--panel:#111827;--panel2:#1f2937;
@@ -88,10 +88,10 @@
 
   <!-- Käyttötilat -->
   <div class="mode-grid" role="group" aria-label="Reittityyppi">
-    <button class="mode-btn" id="modeForest" aria-pressed="true">🌲 Metsäpolku</button>
-    <button class="mode-btn" id="modeGravel" aria-pressed="false">🪨 Hiekkatie</button>
-    <button class="mode-btn" id="modeAsphalt" aria-pressed="false">🛣️ Asfaltti</button>
-    <button class="mode-btn" id="modeIndoor" aria-pressed="false">🏢 Sisätila</button>
+    <button class="mode-btn" id="modeForest" aria-pressed="true">Metsäpolku</button>
+    <button class="mode-btn" id="modeGravel" aria-pressed="false">Hiekkatie</button>
+    <button class="mode-btn" id="modeAsphalt" aria-pressed="false">Asfaltti</button>
+    <button class="mode-btn" id="modeIndoor" aria-pressed="false">Sisätila</button>
   </div>
 
   <!-- Aloita / Pysäytä -->
@@ -101,7 +101,7 @@
   </div>
 
   <!-- Ohjauskenttä -->
-  <div id="directionBox" class="direction state-stopped" aria-live="assertive" aria-atomic="true">
+  <div id="directionBox" class="direction state-stopped">
     <div class="dlabel">Ohjaus</div>
     <div id="directionValue" class="dvalue">–</div>
     <div id="directionMsg" class="dmsg">Ei käynnissä.</div>
@@ -271,7 +271,7 @@ function announceVoiceOver(dir){
   if(!voiceOverEnabled.checked||!voiceOverLiveRegion)return;
   const now=performance.now();
   if(dir===lastVoiceOverDirection&&now-lastVoiceOverMs<2500)return;
-  const map={Vasen:'vasemmalle',Oikea:'oikealle',Keskellä:'keskellä',Este:'este'};
+  const map={Vasen:'vasemmalle',Oikea:'oikealle',Este:'este'};
   if(!map[dir])return;
   lastVoiceOverDirection=dir;lastVoiceOverMs=now;
   voiceOverLiveRegion.textContent='';
@@ -632,11 +632,11 @@ function detectCrosswalk(data,w,h){
 function detectObstacle(data,w,h,mode,routeResult){
   if(!routeResult||routeResult.confidence<.24)return{detected:false,confidence:0,position:null,freeColumn:null};
   const routeCenter=w/2+(isFinite(routeResult.offset)?routeResult.offset*(w/2):0);
-  const yStart=Math.floor(h*.52),yEnd=Math.floor(h*.90);
   const laneHalf=Math.max(32,Math.floor(w*.28));
 
-  /* METSÄPOLKU: kaatuneen puun / kiven tunnistus (leikkaa koko kaistan) */
+  /* METSÄPOLKU: säilytetään eri logiikka, joka etsii polun poikki kulkevaa kappaletta. */
   if(mode==='forest'){
+    const yStart=Math.floor(h*.52),yEnd=Math.floor(h*.90);
     const leftEdge=Math.max(4,Math.floor(routeCenter-laneHalf));
     const rightEdge=Math.min(w-5,Math.floor(routeCenter+laneHalf));
     const rowHits=[];
@@ -692,44 +692,79 @@ function detectObstacle(data,w,h,mode,routeResult){
     return{detected:confidence>.52,confidence,position:'center',freeColumn:null};
   }
 
-  /* MUUT MOODIT: vapaan kaistan haku – koko näkyvä alue */
+  /*
+    v13: HIEKKATIE / ASFALTTI / SISÄTILA
+    Kaukoalue vaikuttaa vain reitinohjaukseen.
+    Varsinainen estehälytys annetaan vain kuvan alaosan lähialueelta.
+  */
   const cols={
-    left:{xMin:Math.max(4,Math.floor(routeCenter-laneHalf)),xMax:Math.floor(routeCenter-laneHalf*.3),freeDepth:0},
-    center:{xMin:Math.floor(routeCenter-laneHalf*.32),xMax:Math.floor(routeCenter+laneHalf*.32),freeDepth:0},
-    right:{xMin:Math.floor(routeCenter+laneHalf*.3),xMax:Math.min(w-5,Math.floor(routeCenter+laneHalf)),freeDepth:0}
+    left:{xMin:Math.max(4,Math.floor(routeCenter-laneHalf)),xMax:Math.floor(routeCenter-laneHalf*.3),freeDepth:0,nearBlocked:false},
+    center:{xMin:Math.floor(routeCenter-laneHalf*.32),xMax:Math.floor(routeCenter+laneHalf*.32),freeDepth:0,nearBlocked:false},
+    right:{xMin:Math.floor(routeCenter+laneHalf*.3),xMax:Math.min(w-5,Math.floor(routeCenter+laneHalf)),freeDepth:0,nearBlocked:false}
   };
-  for(const col of Object.values(cols)){
-    let firstBlockY=yStart; // oletus: este heti
-    for(let y=yEnd;y>=yStart;y-=3){
-      let rowScore=0,rowCount=0;
-      for(let x=col.xMin;x<=col.xMax;x+=3){
-        const idx=(y*w+x)*4,r=data[idx],g=data[idx+1],b=data[idx+2];
-        const lum=.2126*r+.7152*g+.0722*b,saturation=Math.max(r,g,b)-Math.min(r,g,b);
-        const lL=lumAt(data,w,h,x-2,y),lR=lumAt(data,w,h,x+2,y);
-        const lU=lumAt(data,w,h,x,y-2),lD=lumAt(data,w,h,x,y+2);
-        const hEdge=Math.abs(lR-lL),vEdge=Math.abs(lD-lU),edge=hEdge+vEdge;
-        const surface=scorePixel(mode,{r,g,b,lum,saturation,hEdge,vEdge,edge},data,w,h,x,y);
-        const variance=localVariance(data,w,h,x,y);
-        const anomaly=Math.max(0,.95-surface)+Math.min(1,edge/130)*.35+Math.min(1,variance/1600)*.25;
-        rowScore+=anomaly;rowCount++;
-      }
-      if(rowCount>0&&rowScore/rowCount>.62){firstBlockY=y;break;}
+
+  function rowAnomaly(y,col){
+    let rowScore=0,rowCount=0;
+    for(let x=col.xMin;x<=col.xMax;x+=3){
+      const idx=(y*w+x)*4,r=data[idx],g=data[idx+1],b=data[idx+2];
+      const lum=.2126*r+.7152*g+.0722*b,saturation=Math.max(r,g,b)-Math.min(r,g,b);
+      const lL=lumAt(data,w,h,x-2,y),lR=lumAt(data,w,h,x+2,y);
+      const lU=lumAt(data,w,h,x,y-2),lD=lumAt(data,w,h,x,y+2);
+      const hEdge=Math.abs(lR-lL),vEdge=Math.abs(lD-lU),edge=hEdge+vEdge;
+      const surface=scorePixel(mode,{r,g,b,lum,saturation,hEdge,vEdge,edge},data,w,h,x,y);
+      const variance=localVariance(data,w,h,x,y);
+      const notSurface=Math.max(0,.94-surface);
+      const shape=Math.min(1,edge/145)*.38+Math.min(1,variance/1900)*.28;
+      const veryBrightObject=(lum>218&&saturation<62)?.10:0;
+      let anomaly=notSurface*.46+shape+veryBrightObject;
+
+      if(mode==='indoor'&&edge<55&&variance<1100)anomaly*=.45;
+      if(mode==='gravel'&&edge<48&&variance<1200)anomaly*=.55;
+      if(mode==='asphalt'&&edge<45&&variance<1050)anomaly*=.55;
+
+      rowScore+=anomaly;rowCount++;
     }
-    col.freeDepth=(firstBlockY-yStart)/Math.max(1,yEnd-yStart);
+    return rowCount?rowScore/rowCount:0;
   }
-  const allBlocked=cols.left.freeDepth<.20&&cols.center.freeDepth<.20&&cols.right.freeDepth<.20;
-  if(!allBlocked){
-    let freeColumn='center';
-    if(cols.left.freeDepth>cols.center.freeDepth&&cols.left.freeDepth>cols.right.freeDepth)freeColumn='left';
-    else if(cols.right.freeDepth>cols.center.freeDepth&&cols.right.freeDepth>cols.left.freeDepth)freeColumn='right';
-    return{detected:false,confidence:0,position:null,freeColumn:cols.center.freeDepth>.45?null:freeColumn};
+
+  // Kaukoalue: vain vapaamman suunnan valintaan.
+  const farStart=Math.floor(h*.42),farEnd=Math.floor(h*.90);
+  for(const col of Object.values(cols)){
+    let firstBlockY=farStart;
+    for(let y=farEnd;y>=farStart;y-=3){
+      if(rowAnomaly(y,col)>.66){firstBlockY=y;break;}
+    }
+    col.freeDepth=(firstBlockY-farStart)/Math.max(1,farEnd-farStart);
   }
-  const avgBlock=(cols.left.freeDepth+cols.center.freeDepth+cols.right.freeDepth)/3;
-  const confidence=Math.min(1,(1-avgBlock)*1.3);
-  return{detected:confidence>.55,confidence,position:'center',freeColumn:null};
+
+  let freeColumn=null;
+  if(cols.center.freeDepth<.46){
+    if(cols.left.freeDepth>cols.center.freeDepth+.12&&cols.left.freeDepth>=cols.right.freeDepth)freeColumn='left';
+    else if(cols.right.freeDepth>cols.center.freeDepth+.12&&cols.right.freeDepth>cols.left.freeDepth)freeColumn='right';
+  }
+
+  // Lähialue: vain tämä saa aiheuttaa estehälytyksen.
+  const nearStart=Math.floor(h*.74),nearEnd=Math.floor(h*.97);
+  const nearThreshold=mode==='indoor'?.72:.76;
+  for(const col of Object.values(cols)){
+    let blockedRows=0,totalRows=0,consecutive=0,maxConsecutive=0;
+    for(let y=nearEnd;y>=nearStart;y-=3){
+      const a=rowAnomaly(y,col);
+      totalRows++;
+      if(a>nearThreshold){blockedRows++;consecutive++;maxConsecutive=Math.max(maxConsecutive,consecutive);}
+      else consecutive=0;
+    }
+    const ratio=blockedRows/Math.max(1,totalRows);
+    col.nearBlocked=ratio>.55&&maxConsecutive>=3;
+  }
+
+  const allNearBlocked=cols.left.nearBlocked&&cols.center.nearBlocked&&cols.right.nearBlocked;
+  if(!allNearBlocked)return{detected:false,confidence:0,position:null,freeColumn};
+
+  return{detected:true,confidence:.72,position:'center',freeColumn:null};
 }
 
-// ── State updaters ────────────────────────────────────────────────────────
+// ── State updaters// ── State updaters ────────────────────────────────────────────────────────
 function updateObstacleState(obstacle){
   if(!obstacle||!obstacle.detected){
     obstacleStreak=Math.max(0,obstacleStreak-1);
