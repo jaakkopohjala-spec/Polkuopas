@@ -4,7 +4,7 @@
   <meta charset="utf-8"/>
   <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"/>
   <meta name="theme-color" content="#0f172a"/>
-  <title>Polkuopas – v13</title>
+  <title>Polkuopas – v15</title>
   <style>
     :root{
       --bg:#0f172a;--panel:#111827;--panel2:#1f2937;
@@ -42,6 +42,7 @@
 
     /* Controls */
     .ctrl-row{display:grid;grid-template-columns:1fr 1fr;gap:10px;}
+    .bottom-row-3{display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;}
     button{appearance:none;border:1px solid #64748b;background:#e2e8f0;color:#0f172a;
       border-radius:14px;padding:13px 12px;font-size:1rem;font-weight:700;cursor:pointer;min-height:52px;}
     button.secondary{background:#334155;color:var(--text);}
@@ -169,8 +170,12 @@
     <div class="bar" aria-hidden="true"><span id="obstacleBar"></span></div>
   </div>
 
-  <!-- Nollaa -->
-  <button id="resetButton" class="secondary full">Nollaa mittaushistoria</button>
+  <!-- Testisession toiminnot -->
+  <div class="bottom-row-3">
+    <button id="resetButton" class="secondary">Nollaa mittaushistoria</button>
+    <button id="saveTestImageButton" class="secondary">Tallenna testikuva</button>
+    <button id="downloadTestZipButton" class="secondary">Lataa ZIP</button>
+  </div>
 
 </main>
 
@@ -182,7 +187,7 @@
 'use strict';
 const $=id=>document.getElementById(id);
 const video=$('video'),analysisCanvas=$('analysisCanvas');
-const startButton=$('startButton'),stopButton=$('stopButton'),audioTestButton=$('audioTestButton'),resetButton=$('resetButton');
+const startButton=$('startButton'),stopButton=$('stopButton'),audioTestButton=$('audioTestButton'),resetButton=$('resetButton'),saveTestImageButton=$('saveTestImageButton'),downloadTestZipButton=$('downloadTestZipButton');
 const directionBox=$('directionBox'),directionValue=$('directionValue'),directionMsg=$('directionMsg');
 const offsetValue=$('offsetValue'),offsetBar=$('offsetBar');
 const confidenceValue=$('confidenceValue'),confidenceBar=$('confidenceBar');
@@ -196,7 +201,7 @@ const obstacleEnabled=$('obstacleEnabled'),crosswalkEnabled=$('crosswalkEnabled'
 const modeForest=$('modeForest'),modeGravel=$('modeGravel'),modeAsphalt=$('modeAsphalt'),modeIndoor=$('modeIndoor');
 
 let stream=null,animationId=null,audioCtx=null,lastBeepMs=0,lastAnalysisMs=0,running=false;
-let selectedMode='forest',history=[],emaOffset=0,emaInitialized=false;
+let selectedMode='forest',history=[],emaOffset=0,emaInitialized=false;let testSamples=[],testSessionId=new Date().toISOString().replace(/[:.]/g,'-'),latestState={};
 let currentVisualDirection='',currentVisualMessage='',lastVoiceOverDirection='',lastVoiceOverMs=0;
 let crosswalkVisible=false,lastCrosswalkEventMs=0,crosswalkStreak=0,crosswalkMissStreak=0;
 let obstacleStreak=0,lastCandidateObstacle='',lastObstacleDirection='',lastObstacleAlertMs=0;
@@ -548,10 +553,17 @@ function detectCorridor(data,w,h,mode,config,crosswalk){
   6. Minimivarmuus nostettu 0.56 → 0.65
 */
 function detectCrosswalk(data,w,h){
+  /*
+    v14:
+    - vaaditaan vähintään 3 suojatieviivaa
+    - jokaisen viivan kulman pitää olla enintään noin 30 astetta vaakatasosta
+    - kuvan alin osa jätetään pois, jotta valkoinen keppi ei aiheuttaisi hälyjä
+  */
   const xMin=Math.floor(w*.06),xMax=Math.floor(w*.94);
-  const yMin=Math.floor(h*.28),yMax=Math.floor(h*.92);
-  const minLineWidth=w*.52; // keppi tai yksittäinen viiva ei pääse läpi
+  const yMin=Math.floor(h*.28),yMax=Math.floor(h*.84); // v14: ei alinta 16 %
+  const minLineWidth=w*.44; // hieman kevyempi, koska mukana kulmakriteeri
   const rows=[];
+
   for(let y=yMin;y<=yMax;y+=2){
     let count=0,sumX=0,minX=w,maxX=0;
     for(let x=xMin;x<=xMax;x+=2){
@@ -559,16 +571,16 @@ function detectCrosswalk(data,w,h){
       const lum=.2126*r+.7152*g+.0722*b,sat=Math.max(r,g,b)-Math.min(r,g,b);
       const lU=lumAt(data,w,h,x,y-2),lD=lumAt(data,w,h,x,y+2);
       const contrast=lum-(lU+lD)/2;
-      // Tiukemmat kriteerit: kirkkaampi kynnys, pienempi sat, positiivinen kontrasti
-      if(lum>180&&sat<48&&contrast>-10){count++;sumX+=x;minX=Math.min(minX,x);maxX=Math.max(maxX,x);}
+      if(lum>180&&sat<48&&contrast>-10){
+        count++;sumX+=x;minX=Math.min(minX,x);maxX=Math.max(maxX,x);
+      }
     }
     const ratio=count/Math.max(1,(xMax-xMin)/2),width=maxX-minX;
-    // Rivin täytyy kattaa vähintään minLineWidth
-    if(ratio>.26&&width>minLineWidth)rows.push({y,ratio,x:sumX/Math.max(1,count),width});
+    if(ratio>.24&&width>minLineWidth)rows.push({y,ratio,x:sumX/Math.max(1,count),width,minX,maxX});
   }
-  if(rows.length<6)return{detected:false,confidence:0,direction:null,lineCount:0};
 
-  // Klusterointi
+  if(rows.length<5)return{detected:false,confidence:0,direction:null,lineCount:0};
+
   const clusters=[];let cur=[rows[0]];
   for(let i=1;i<rows.length;i++){
     if(rows[i].y-rows[i-1].y<=5)cur.push(rows[i]);
@@ -578,57 +590,106 @@ function detectCrosswalk(data,w,h){
 
   let lines=clusters.map(c=>{
     const wt=c.reduce((a,b)=>a+b.ratio,0);
-    return{y:c.reduce((a,b)=>a+b.y*b.ratio,0)/wt,x:c.reduce((a,b)=>a+b.x*b.ratio,0)/wt,
-      ratio:wt/c.length,width:c.reduce((a,b)=>a+b.width,0)/c.length,thickness:c.length};
-  }).filter(l=>l.thickness>=2&&l.width>minLineWidth&&l.ratio>.24);
+    return{
+      y:c.reduce((a,b)=>a+b.y*b.ratio,0)/wt,
+      x:c.reduce((a,b)=>a+b.x*b.ratio,0)/wt,
+      ratio:wt/c.length,
+      width:c.reduce((a,b)=>a+b.width,0)/c.length,
+      minX:Math.min(...c.map(r=>r.minX)),
+      maxX:Math.max(...c.map(r=>r.maxX)),
+      thickness:c.length
+    };
+  }).filter(l=>l.thickness>=2&&l.width>minLineWidth&&l.ratio>.22);
 
-  // Yhdistä lähellä olevat
   const merged=[];
   for(const line of lines){
     const prev=merged[merged.length-1];
     if(prev&&Math.abs(line.y-prev.y)<h*.04){
       const w1=prev.ratio*prev.thickness,w2=line.ratio*line.thickness,wt=w1+w2;
-      prev.y=(prev.y*w1+line.y*w2)/wt;prev.x=(prev.x*w1+line.x*w2)/wt;
-      prev.ratio=(prev.ratio+line.ratio)/2;prev.width=Math.max(prev.width,line.width);
+      prev.y=(prev.y*w1+line.y*w2)/wt;
+      prev.x=(prev.x*w1+line.x*w2)/wt;
+      prev.ratio=(prev.ratio+line.ratio)/2;
+      prev.width=Math.max(prev.width,line.width);
+      prev.minX=Math.min(prev.minX,line.minX);
+      prev.maxX=Math.max(prev.maxX,line.maxX);
       prev.thickness+=line.thickness;
     }else merged.push({...line});
   }
   lines=merged;
 
-  // Vaaditaan vähintään 4 linjaa
-  if(lines.length<4)return{detected:false,confidence:0,direction:null,lineCount:lines.length};
+  // v14: vähintään 3 viivaa.
+  if(lines.length<3)return{detected:false,confidence:0,direction:null,lineCount:lines.length};
 
-  // Sovita suora
+  /*
+    Kulmakriteeri.
+    Tässä arvioidaan yksittäisen viivan kallistusta sen vaaleiden rivien
+    x-keskipisteiden muutoksesta. Suojatieviiva saa olla vaakasuora tai
+    enintään noin 30 astetta vaakatasosta.
+  */
+  const maxAngleRad=Math.PI/6; // 30 astetta
+  const angleOkLines=[];
+  for(const line of lines){
+    // Arvioidaan paikallinen kallistus alkuperäisistä riveistä lähellä line.y.
+    const related=rows.filter(r=>Math.abs(r.y-line.y)<Math.max(6,h*.035));
+    if(related.length<2){
+      angleOkLines.push(line);
+      continue;
+    }
+
+    let n=0,sumY=0,sumX=0,sumYY=0,sumYX=0;
+    for(const r of related){
+      n++;sumY+=r.y;sumX+=r.x;sumYY+=r.y*r.y;sumYX+=r.y*r.x;
+    }
+    const denom=n*sumYY-sumY*sumY;
+    let angle=0;
+    if(Math.abs(denom)>0.001){
+      const dxdy=(n*sumYX-sumY*sumX)/denom;
+      // dx/dy -> viivan suunta suhteessa vaakaan:
+      // dy/dx = 1/(dx/dy), mutta jos dxdy on suuri, viiva on vaakamaisempi.
+      const dydx=Math.abs(dxdy)>0.001?1/dxdy:999;
+      angle=Math.abs(Math.atan(dydx));
+    }
+
+    if(angle<=maxAngleRad)angleOkLines.push(line);
+  }
+  lines=angleOkLines;
+
+  if(lines.length<3)return{detected:false,confidence:0,direction:null,lineCount:lines.length};
+
   let sw=0,sx=0,sy=0;
   for(const l of lines){const wt=l.ratio*l.width;sw+=wt;sx+=l.x*wt;sy+=l.y*wt;}
   const mx=sx/sw,my=sy/sw;
+
   let num=0,den=0;
   for(const l of lines){const wt=l.ratio*l.width;num+=wt*(l.y-my)*(l.x-mx);den+=wt*Math.pow(l.y-my,2);}
   const slope=den>.001?num/den:0;
 
-  // Tasavälisyys – tiukennettu: hajonta < 40 % keskivälistä
-  const gaps=[];for(let i=1;i<lines.length;i++)gaps.push(lines[i].y-lines[i-1].y);
+  const gaps=[];
+  for(let i=1;i<lines.length;i++)gaps.push(lines[i].y-lines[i-1].y);
   const avgGap=gaps.reduce((a,b)=>a+b,0)/gaps.length;
   const gapVar=gaps.reduce((a,b)=>a+Math.pow(b-avgGap,2),0)/gaps.length;
-  const spacingOk=avgGap>h*.04&&avgGap<h*.22&&Math.sqrt(gapVar)<avgGap*.40;
+  const spacingOk=avgGap>h*.035&&avgGap<h*.25&&Math.sqrt(gapVar)<avgGap*.55;
 
-  // Yhdensuuntaisuus
   const residual=lines.reduce((a,l)=>a+Math.abs(l.x-(mx+slope*(l.y-my))),0)/lines.length;
-  const parallelOk=residual<w*.10;
+  const parallelOk=residual<w*.12;
 
   if(!spacingOk||!parallelOk)return{detected:false,confidence:0,direction:null,lineCount:lines.length};
 
-  const countS=Math.min(1,lines.length/5);
-  const widthS=Math.min(1,lines.reduce((a,b)=>a+b.width,0)/lines.length/(w*.62));
+  const countS=Math.min(1,lines.length/4);
+  const widthS=Math.min(1,lines.reduce((a,b)=>a+b.width,0)/lines.length/(w*.55));
   const brightS=Math.min(1,lines.reduce((a,b)=>a+b.ratio,0)/lines.length/.35);
-  const confidence=Math.max(0,Math.min(1,countS*.38+widthS*.32+brightS*.30));
+  const confidence=Math.max(0,Math.min(1,countS*.36+widthS*.34+brightS*.30));
 
   let direction=null;
-  if(confidence>.65){if(slope<-.22)direction='left';else if(slope>.22)direction='right';}
-  return{detected:confidence>.65,confidence,direction,slope,lineCount:lines.length};
+  if(confidence>.62){
+    if(slope<-.22)direction='left';
+    else if(slope>.22)direction='right';
+  }
+
+  return{detected:confidence>.62,confidence,direction,slope,lineCount:lines.length};
 }
 
-// ── Esteentunnistus ───────────────────────────────────────────────────────
+// ── Esteentunnistus// ── Esteentunnistus ───────────────────────────────────────────────────────
 function detectObstacle(data,w,h,mode,routeResult){
   if(!routeResult||routeResult.confidence<.24)return{detected:false,confidence:0,position:null,freeColumn:null};
   const routeCenter=w/2+(isFinite(routeResult.offset)?routeResult.offset*(w/2):0);
@@ -832,6 +893,23 @@ function updateGuidance(result,cw,obstacle){
     dir='Oikea';msg='Reitin keskilinja on oikealla.';
   }
 
+  latestState={
+    timestamp:new Date().toISOString(),
+    mode:selectedMode,
+    modeLabel:MODE_CONFIG[selectedMode]?.label||selectedMode,
+    direction:dir,
+    message:msg,
+    offset:result.offset,
+    confidence:result.confidence,
+    crosswalkVisible,
+    crosswalkText:crosswalkValue.textContent,
+    obstacleText:obstacleValue.textContent,
+    threshold:Number(thresholdInput.value),
+    fps:Number(fpsSelect.value||10),
+    cameraQuality:cameraQualitySelect.value,
+    obstacleEnabled:obstacleEnabled.checked,
+    crosswalkEnabled:crosswalkEnabled.checked
+  };
   setDirectionUI(dir,msg);
   const now=performance.now(),abs=Math.abs(result.offset);
   const interval=Math.max(180,720-abs*820);
@@ -867,15 +945,154 @@ function analyzeFrame(){
   updateGuidance(result,cw,obstacle);
 }
 
+
+// ── Testikuvat ja ZIP-paketti ─────────────────────────────────────────────
+const TEST_LABELS=[
+  ['turha_suojatiehavainto','Turha suojatiehavainto'],
+  ['suojatie_puuttui','Ei suojatieilmoitusta vaikka olisi pitänyt'],
+  ['oikea_suojatiehavainto','Oikea suojatiehavainto'],
+  ['turha_estehavainto','Turha estehavainto'],
+  ['este_puuttui','Ei esteilmoitusta vaikka olisi pitänyt'],
+  ['oikea_estehavainto','Oikea estehavainto'],
+  ['muu','Muu havainto']
+];
+
+function chooseTestLabel(){
+  const msg='Valitse testikuvan luokka:\n\n'+TEST_LABELS.map((x,i)=>(i+1)+'. '+x[1]).join('\n');
+  const ans=window.prompt(msg,'1');
+  if(ans===null)return null;
+  const idx=Math.max(1,Math.min(TEST_LABELS.length,parseInt(ans,10)||1))-1;
+  const note=window.prompt('Vapaa muistiinpano, voi jättää tyhjäksi:','')||'';
+  return{code:TEST_LABELS[idx][0],label:TEST_LABELS[idx][1],note};
+}
+
+function canvasToBlob(canvas,type='image/jpeg',quality=.88){
+  return new Promise(resolve=>canvas.toBlob(resolve,type,quality));
+}
+
+async function saveTestImage(){
+  if(!video||video.readyState<2){
+    setDirectionUI(currentVisualDirection||'-','Kamera ei ole valmis testikuvan tallennukseen.');
+    return;
+  }
+  const label=chooseTestLabel();
+  if(!label)return;
+
+  const vw=video.videoWidth||640,vh=video.videoHeight||480;
+  const maxW=1280;
+  const outW=Math.min(maxW,vw);
+  const outH=Math.round(vh*(outW/vw));
+  const c=document.createElement('canvas');
+  c.width=outW;c.height=outH;
+  c.getContext('2d').drawImage(video,0,0,outW,outH);
+  const blob=await canvasToBlob(c,'image/jpeg',.88);
+  if(!blob){
+    setDirectionUI(currentVisualDirection||'-','Testikuvaa ei voitu tallentaa.');
+    return;
+  }
+
+  const num=String(testSamples.length+1).padStart(3,'0');
+  const safeLabel=label.code.replace(/[^a-z0-9_äöå-]/gi,'_');
+  const fileName=`images/${num}_${safeLabel}.jpg`;
+  const meta={
+    sampleNumber:testSamples.length+1,
+    fileName,
+    labelCode:label.code,
+    label:label.label,
+    note:label.note,
+    capturedAt:new Date().toISOString(),
+    sessionId:testSessionId,
+    appVersion:'v15',
+    videoWidth:vw,
+    videoHeight:vh,
+    savedWidth:outW,
+    savedHeight:outH,
+    latestState:{...latestState}
+  };
+  testSamples.push({fileName,blob,meta});
+  setDirectionUI(currentVisualDirection||'-',`Testikuva tallennettu (${testSamples.length}).`);
+}
+
+function crc32Table(){
+  const table=[];
+  for(let n=0;n<256;n++){
+    let c=n;
+    for(let k=0;k<8;k++)c=((c&1)?(0xedb88320^(c>>>1)):(c>>>1));
+    table[n]=c>>>0;
+  }
+  return table;
+}
+const CRC_TABLE=crc32Table();
+function crc32(bytes){
+  let c=0xffffffff;
+  for(let i=0;i<bytes.length;i++)c=CRC_TABLE[(c^bytes[i])&0xff]^(c>>>8);
+  return (c^0xffffffff)>>>0;
+}
+function u16(n){return [n&255,(n>>>8)&255];}
+function u32(n){return [n&255,(n>>>8)&255,(n>>>16)&255,(n>>>24)&255];}
+function dateToDos(d){
+  return{time:(d.getHours()<<11)|(d.getMinutes()<<5)|(Math.floor(d.getSeconds()/2)),date:((d.getFullYear()-1980)<<9)|((d.getMonth()+1)<<5)|d.getDate()};
+}
+async function makeZip(files){
+  const enc=new TextEncoder(),parts=[],central=[];
+  let offset=0;
+  const now=dateToDos(new Date());
+  for(const f of files){
+    const nameBytes=enc.encode(f.name);
+    const data=f.data instanceof Uint8Array?f.data:new Uint8Array(await f.data.arrayBuffer());
+    const crc=crc32(data);
+    const local=new Uint8Array([...u32(0x04034b50),...u16(20),...u16(0x0800),...u16(0),...u16(now.time),...u16(now.date),...u32(crc),...u32(data.length),...u32(data.length),...u16(nameBytes.length),...u16(0)]);
+    parts.push(local,nameBytes,data);
+    const ch=new Uint8Array([...u32(0x02014b50),...u16(20),...u16(20),...u16(0x0800),...u16(0),...u16(now.time),...u16(now.date),...u32(crc),...u32(data.length),...u32(data.length),...u16(nameBytes.length),...u16(0),...u16(0),...u16(0),...u16(0),...u32(0),...u32(offset)]);
+    central.push(ch,nameBytes);
+    offset+=local.length+nameBytes.length+data.length;
+  }
+  const centralSize=central.reduce((s,p)=>s+p.length,0);
+  const end=new Uint8Array([...u32(0x06054b50),...u16(0),...u16(0),...u16(files.length),...u16(files.length),...u32(centralSize),...u32(offset),...u16(0)]);
+  return new Blob([...parts,...central,end],{type:'application/zip'});
+}
+
+async function downloadTestZip(){
+  if(testSamples.length===0){
+    setDirectionUI(currentVisualDirection||'-','Ei tallennettuja testikuvia.');
+    return;
+  }
+  const metadata={
+    sessionId:testSessionId,
+    createdAt:new Date().toISOString(),
+    appVersion:'v15',
+    sampleCount:testSamples.length,
+    samples:testSamples.map(s=>s.meta)
+  };
+  const files=[
+    {name:'metadata.json',data:new TextEncoder().encode(JSON.stringify(metadata,null,2))},
+    ...testSamples.map(s=>({name:s.fileName,data:s.blob}))
+  ];
+  const zip=await makeZip(files);
+  const url=URL.createObjectURL(zip);
+  const a=document.createElement('a');
+  a.href=url;
+  a.download=`polkuopas_testikuvat_${testSessionId}.zip`;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  setTimeout(()=>URL.revokeObjectURL(url),1500);
+  setDirectionUI(currentVisualDirection||'-',`ZIP ladattu (${testSamples.length} kuvaa).`);
+}
+
+
 // ── Event listeners ───────────────────────────────────────────────────────
 startButton.addEventListener('click',startCamera);
 stopButton.addEventListener('click',stopCamera);
 resetButton.addEventListener('click',resetHistory);
+saveTestImageButton.addEventListener('click',saveTestImage);
+downloadTestZipButton.addEventListener('click',downloadTestZip);
 audioTestButton.addEventListener('click',()=>{
   ensureAudio();
   playBeep(-1,1,'guide');
   setTimeout(()=>playBeep(1,1,'guide'),420);
   setTimeout(()=>playBeep(0,1,'bling'),900);
+  setTimeout(()=>playObstacleAlert('center'),1400);
 });
 thresholdInput.addEventListener('input',()=>{
   thresholdValue.textContent=Number(thresholdInput.value).toFixed(2);

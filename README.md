@@ -1,22 +1,15 @@
-# Polkuopas – v13
+# Polkuopas – v15
 
-Tämä versio on tehty version 12 pohjalta.
+Muutokset versioon 14 nähden:
+- Lisätty testikuvien tallennus.
+- Alalaitaan lisätty painikkeet:
+  - Nollaa mittaushistoria
+  - Tallenna testikuva
+  - Lataa ZIP
+- Testikuvan tallennuksen jälkeen sovellus kysyy luokittelun.
+- ZIP sisältää metadata.json-tiedoston ja images-kansion kuville.
+- Metadataan tallennetaan muun muassa moodi, ohjaustila, reittipoikkeama, tunnistusvarmuus, suojatie-/estehavaintojen tekstit, asetukset ja aikaleima.
+- Äänitesti soittaa taas myös estehälytysäänen.
 
-Muutokset:
-- Estehälytyslogiikkaa muutettu hiekkatie-, asfaltti- ja sisätilamoodeissa.
-- Varsinainen estehälytys tarkastelee nyt vain lähialuetta eli kuvan alaosaa.
-- Kauempana olevat kohteet voivat edelleen vaikuttaa vasen/oikea-reitinohjaukseen.
-- Estehälytys annetaan vain, jos lähialueella vasen, keskimmäinen ja oikea lohko ovat kaikki poikki.
-- Metsäpolkumoodin erillinen poikittaisen/viiston esteen logiikka säilytetty ennallaan.
-- Näkyvän ohjauslaatikon aria-live poistettu, jotta VoiceOver ei lue pitkää laatikkosisältöä.
-- VoiceOver-puheohjeet pidetty lyhyinä: vasemmalle, oikealle, este, suojatie, suojatie päättyy.
-- Käyttömoodipainikkeiden emojit poistettu, jotta VoiceOver sanoo vain:
-  - Metsäpolku
-  - Hiekkatie
-  - Asfaltti
-  - Sisätila
-
-Käyttöönotto:
-1. Korvaa GitHub-repositoryn juuressa oleva `index.html` tällä tiedostolla.
-2. Commitoi muutos.
-3. Avaa GitHub Pages -osoite iPhonen Safarissa.
+Huomio:
+Testikuvat kertyvät selaimen muistiin vain nykyisen käyttökerran aikana. Lataa ZIP ennen sivun sulkemista tai päivittämistä.
