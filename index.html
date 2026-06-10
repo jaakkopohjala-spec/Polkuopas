@@ -4,7 +4,7 @@
   <meta charset="utf-8"/>
   <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"/>
   <meta name="theme-color" content="#0f172a"/>
-  <title>Polkuopas – v15</title>
+  <title>Polkuopas – v16</title>
   <style>
     :root{
       --bg:#0f172a;--panel:#111827;--panel2:#1f2937;
@@ -43,6 +43,12 @@
     /* Controls */
     .ctrl-row{display:grid;grid-template-columns:1fr 1fr;gap:10px;}
     .bottom-row-3{display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;}
+    .test-panel{display:none;background:var(--panel);border:1px solid var(--border);border-radius:16px;padding:12px;gap:10px;flex-direction:column;}
+    .test-panel.open{display:flex;}
+    .test-options{display:grid;grid-template-columns:1fr;gap:8px;}
+    .test-options button{background:var(--panel2);color:var(--text);border:2px solid var(--border);font-size:.9rem;min-height:48px;}
+    .test-options button[aria-pressed="true"]{border-color:#facc15;color:#facc15;background:#1c1a07;}
+    textarea{width:100%;min-height:90px;border-radius:12px;border:1px solid #64748b;background:#e2e8f0;color:#0f172a;padding:10px;font-size:1rem;font-family:inherit;}
     button{appearance:none;border:1px solid #64748b;background:#e2e8f0;color:#0f172a;
       border-radius:14px;padding:13px 12px;font-size:1rem;font-weight:700;cursor:pointer;min-height:52px;}
     button.secondary{background:#334155;color:var(--text);}
@@ -145,7 +151,7 @@
       VoiceOver-puheohjeet
     </label>
     <label class="checkrow">
-      <input id="obstacleEnabled" type="checkbox" checked/>
+      <input id="obstacleEnabled" type="checkbox"/>
       Esteentunnistus
     </label>
     <label class="checkrow" id="crosswalkRow">
@@ -174,7 +180,26 @@
   <div class="bottom-row-3">
     <button id="resetButton" class="secondary">Nollaa mittaushistoria</button>
     <button id="saveTestImageButton" class="secondary">Tallenna testikuva</button>
-    <button id="downloadTestZipButton" class="secondary">Lataa ZIP</button>
+    <button id="downloadTestZipButton" class="secondary">Jaa ZIP</button>
+  </div>
+  <div id="testCapturePanel" class="test-panel" role="region" aria-label="Testikuvan tallennus">
+    <p class="tagline">Valitse testikuvan luokka ja lisää halutessasi muistiinpano.</p>
+    <div class="test-options" role="group" aria-label="Testikuvan luokka">
+      <button type="button" class="test-label-btn" data-code="turha_suojatiehavainto">Turha suojatiehavainto</button>
+      <button type="button" class="test-label-btn" data-code="suojatie_puuttui">Ei suojatieilmoitusta vaikka olisi pitänyt</button>
+      <button type="button" class="test-label-btn" data-code="oikea_suojatiehavainto">Oikea suojatiehavainto</button>
+      <button type="button" class="test-label-btn" data-code="turha_estehavainto">Turha estehavainto</button>
+      <button type="button" class="test-label-btn" data-code="este_puuttui">Ei esteilmoitusta vaikka olisi pitänyt</button>
+      <button type="button" class="test-label-btn" data-code="oikea_estehavainto">Oikea estehavainto</button>
+      <button type="button" class="test-label-btn" data-code="muu">Muu</button>
+    </div>
+    <label class="setting" for="testNoteInput">Muistiinpano
+      <textarea id="testNoteInput" placeholder="Kirjoita vapaaehtoinen lisätieto tähän"></textarea>
+    </label>
+    <div class="ctrl-row">
+      <button id="confirmTestImageButton" type="button">Tallenna</button>
+      <button id="cancelTestImageButton" type="button" class="secondary">Peruuta</button>
+    </div>
   </div>
 
 </main>
@@ -187,7 +212,7 @@
 'use strict';
 const $=id=>document.getElementById(id);
 const video=$('video'),analysisCanvas=$('analysisCanvas');
-const startButton=$('startButton'),stopButton=$('stopButton'),audioTestButton=$('audioTestButton'),resetButton=$('resetButton'),saveTestImageButton=$('saveTestImageButton'),downloadTestZipButton=$('downloadTestZipButton');
+const startButton=$('startButton'),stopButton=$('stopButton'),audioTestButton=$('audioTestButton'),resetButton=$('resetButton'),saveTestImageButton=$('saveTestImageButton'),downloadTestZipButton=$('downloadTestZipButton'),testCapturePanel=$('testCapturePanel'),confirmTestImageButton=$('confirmTestImageButton'),cancelTestImageButton=$('cancelTestImageButton'),testNoteInput=$('testNoteInput');
 const directionBox=$('directionBox'),directionValue=$('directionValue'),directionMsg=$('directionMsg');
 const offsetValue=$('offsetValue'),offsetBar=$('offsetBar');
 const confidenceValue=$('confidenceValue'),confidenceBar=$('confidenceBar');
@@ -201,7 +226,7 @@ const obstacleEnabled=$('obstacleEnabled'),crosswalkEnabled=$('crosswalkEnabled'
 const modeForest=$('modeForest'),modeGravel=$('modeGravel'),modeAsphalt=$('modeAsphalt'),modeIndoor=$('modeIndoor');
 
 let stream=null,animationId=null,audioCtx=null,lastBeepMs=0,lastAnalysisMs=0,running=false;
-let selectedMode='forest',history=[],emaOffset=0,emaInitialized=false;let testSamples=[],testSessionId=new Date().toISOString().replace(/[:.]/g,'-'),latestState={};
+let selectedMode='forest',history=[],emaOffset=0,emaInitialized=false;let testSamples=[],testSessionId=new Date().toISOString().replace(/[:.]/g,'-'),latestState={},selectedTestLabelCode='turha_suojatiehavainto';
 let currentVisualDirection='',currentVisualMessage='',lastVoiceOverDirection='',lastVoiceOverMs=0;
 let crosswalkVisible=false,lastCrosswalkEventMs=0,crosswalkStreak=0,crosswalkMissStreak=0;
 let obstacleStreak=0,lastCandidateObstacle='',lastObstacleDirection='',lastObstacleAlertMs=0;
@@ -946,147 +971,85 @@ function analyzeFrame(){
 }
 
 
+
 // ── Testikuvat ja ZIP-paketti ─────────────────────────────────────────────
 const TEST_LABELS=[
-  ['turha_suojatiehavainto','Turha suojatiehavainto'],
-  ['suojatie_puuttui','Ei suojatieilmoitusta vaikka olisi pitänyt'],
-  ['oikea_suojatiehavainto','Oikea suojatiehavainto'],
-  ['turha_estehavainto','Turha estehavainto'],
-  ['este_puuttui','Ei esteilmoitusta vaikka olisi pitänyt'],
-  ['oikea_estehavainto','Oikea estehavainto'],
-  ['muu','Muu havainto']
+ ['turha_suojatiehavainto','Turha suojatiehavainto'],
+ ['suojatie_puuttui','Ei suojatieilmoitusta vaikka olisi pitänyt'],
+ ['oikea_suojatiehavainto','Oikea suojatiehavainto'],
+ ['turha_estehavainto','Turha estehavainto'],
+ ['este_puuttui','Ei esteilmoitusta vaikka olisi pitänyt'],
+ ['oikea_estehavainto','Oikea estehavainto'],
+ ['muu','Muu']
 ];
-
-function chooseTestLabel(){
-  const msg='Valitse testikuvan luokka:\n\n'+TEST_LABELS.map((x,i)=>(i+1)+'. '+x[1]).join('\n');
-  const ans=window.prompt(msg,'1');
-  if(ans===null)return null;
-  const idx=Math.max(1,Math.min(TEST_LABELS.length,parseInt(ans,10)||1))-1;
-  const note=window.prompt('Vapaa muistiinpano, voi jättää tyhjäksi:','')||'';
-  return{code:TEST_LABELS[idx][0],label:TEST_LABELS[idx][1],note};
+function getLabelByCode(code){return TEST_LABELS.find(x=>x[0]===code)||TEST_LABELS[0];}
+function updateTestLabelButtons(){
+ document.querySelectorAll('.test-label-btn').forEach(btn=>btn.setAttribute('aria-pressed',btn.dataset.code===selectedTestLabelCode?'true':'false'));
 }
-
-function canvasToBlob(canvas,type='image/jpeg',quality=.88){
-  return new Promise(resolve=>canvas.toBlob(resolve,type,quality));
+document.querySelectorAll('.test-label-btn').forEach(btn=>{
+ btn.addEventListener('click',()=>{selectedTestLabelCode=btn.dataset.code;updateTestLabelButtons();testNoteInput.focus();});
+});
+function openTestCapturePanel(){
+ if(!video||video.readyState<2){setDirectionUI(currentVisualDirection||'-','Kamera ei ole valmis testikuvan tallennukseen.');return;}
+ testCapturePanel.classList.add('open');updateTestLabelButtons();
+ const first=testCapturePanel.querySelector('.test-label-btn');if(first)first.focus();
 }
-
-async function saveTestImage(){
-  if(!video||video.readyState<2){
-    setDirectionUI(currentVisualDirection||'-','Kamera ei ole valmis testikuvan tallennukseen.');
-    return;
-  }
-  const label=chooseTestLabel();
-  if(!label)return;
-
-  const vw=video.videoWidth||640,vh=video.videoHeight||480;
-  const maxW=1280;
-  const outW=Math.min(maxW,vw);
-  const outH=Math.round(vh*(outW/vw));
-  const c=document.createElement('canvas');
-  c.width=outW;c.height=outH;
-  c.getContext('2d').drawImage(video,0,0,outW,outH);
-  const blob=await canvasToBlob(c,'image/jpeg',.88);
-  if(!blob){
-    setDirectionUI(currentVisualDirection||'-','Testikuvaa ei voitu tallentaa.');
-    return;
-  }
-
-  const num=String(testSamples.length+1).padStart(3,'0');
-  const safeLabel=label.code.replace(/[^a-z0-9_äöå-]/gi,'_');
-  const fileName=`images/${num}_${safeLabel}.jpg`;
-  const meta={
-    sampleNumber:testSamples.length+1,
-    fileName,
-    labelCode:label.code,
-    label:label.label,
-    note:label.note,
-    capturedAt:new Date().toISOString(),
-    sessionId:testSessionId,
-    appVersion:'v15',
-    videoWidth:vw,
-    videoHeight:vh,
-    savedWidth:outW,
-    savedHeight:outH,
-    latestState:{...latestState}
-  };
-  testSamples.push({fileName,blob,meta});
-  setDirectionUI(currentVisualDirection||'-',`Testikuva tallennettu (${testSamples.length}).`);
+function closeTestCapturePanel(){testCapturePanel.classList.remove('open');}
+function canvasToBlob(canvas,type='image/jpeg',quality=.88){return new Promise(resolve=>canvas.toBlob(resolve,type,quality));}
+async function saveTestImageWithCurrentForm(){
+ if(!video||video.readyState<2){setDirectionUI(currentVisualDirection||'-','Kamera ei ole valmis testikuvan tallennukseen.');return;}
+ const labelArr=getLabelByCode(selectedTestLabelCode);
+ const label={code:labelArr[0],label:labelArr[1],note:testNoteInput.value||''};
+ const vw=video.videoWidth||640,vh=video.videoHeight||480,outW=Math.min(1280,vw),outH=Math.round(vh*(outW/vw));
+ const c=document.createElement('canvas');c.width=outW;c.height=outH;c.getContext('2d').drawImage(video,0,0,outW,outH);
+ const blob=await canvasToBlob(c,'image/jpeg',.88);
+ if(!blob){setDirectionUI(currentVisualDirection||'-','Testikuvaa ei voitu tallentaa.');return;}
+ const num=String(testSamples.length+1).padStart(3,'0'),safeLabel=label.code.replace(/[^a-z0-9_äöå-]/gi,'_'),fileName=`images/${num}_${safeLabel}.jpg`;
+ const meta={sampleNumber:testSamples.length+1,fileName,labelCode:label.code,label:label.label,note:label.note,capturedAt:new Date().toISOString(),sessionId:testSessionId,appVersion:'v16',videoWidth:vw,videoHeight:vh,savedWidth:outW,savedHeight:outH,latestState:{...latestState}};
+ testSamples.push({fileName,blob,meta});testNoteInput.value='';closeTestCapturePanel();setDirectionUI(currentVisualDirection||'-',`Testikuva tallennettu (${testSamples.length}).`);
 }
-
-function crc32Table(){
-  const table=[];
-  for(let n=0;n<256;n++){
-    let c=n;
-    for(let k=0;k<8;k++)c=((c&1)?(0xedb88320^(c>>>1)):(c>>>1));
-    table[n]=c>>>0;
-  }
-  return table;
-}
+function crc32Table(){const table=[];for(let n=0;n<256;n++){let c=n;for(let k=0;k<8;k++)c=((c&1)?(0xedb88320^(c>>>1)):(c>>>1));table[n]=c>>>0;}return table;}
 const CRC_TABLE=crc32Table();
-function crc32(bytes){
-  let c=0xffffffff;
-  for(let i=0;i<bytes.length;i++)c=CRC_TABLE[(c^bytes[i])&0xff]^(c>>>8);
-  return (c^0xffffffff)>>>0;
-}
-function u16(n){return [n&255,(n>>>8)&255];}
-function u32(n){return [n&255,(n>>>8)&255,(n>>>16)&255,(n>>>24)&255];}
-function dateToDos(d){
-  return{time:(d.getHours()<<11)|(d.getMinutes()<<5)|(Math.floor(d.getSeconds()/2)),date:((d.getFullYear()-1980)<<9)|((d.getMonth()+1)<<5)|d.getDate()};
-}
+function crc32(bytes){let c=0xffffffff;for(let i=0;i<bytes.length;i++)c=CRC_TABLE[(c^bytes[i])&0xff]^(c>>>8);return(c^0xffffffff)>>>0;}
+function u16(n){return[n&255,(n>>>8)&255];}
+function u32(n){return[n&255,(n>>>8)&255,(n>>>16)&255,(n>>>24)&255];}
+function dateToDos(d){return{time:(d.getHours()<<11)|(d.getMinutes()<<5)|(Math.floor(d.getSeconds()/2)),date:((d.getFullYear()-1980)<<9)|((d.getMonth()+1)<<5)|d.getDate()};}
 async function makeZip(files){
-  const enc=new TextEncoder(),parts=[],central=[];
-  let offset=0;
-  const now=dateToDos(new Date());
-  for(const f of files){
-    const nameBytes=enc.encode(f.name);
-    const data=f.data instanceof Uint8Array?f.data:new Uint8Array(await f.data.arrayBuffer());
-    const crc=crc32(data);
-    const local=new Uint8Array([...u32(0x04034b50),...u16(20),...u16(0x0800),...u16(0),...u16(now.time),...u16(now.date),...u32(crc),...u32(data.length),...u32(data.length),...u16(nameBytes.length),...u16(0)]);
-    parts.push(local,nameBytes,data);
-    const ch=new Uint8Array([...u32(0x02014b50),...u16(20),...u16(20),...u16(0x0800),...u16(0),...u16(now.time),...u16(now.date),...u32(crc),...u32(data.length),...u32(data.length),...u16(nameBytes.length),...u16(0),...u16(0),...u16(0),...u16(0),...u32(0),...u32(offset)]);
-    central.push(ch,nameBytes);
-    offset+=local.length+nameBytes.length+data.length;
-  }
-  const centralSize=central.reduce((s,p)=>s+p.length,0);
-  const end=new Uint8Array([...u32(0x06054b50),...u16(0),...u16(0),...u16(files.length),...u16(files.length),...u32(centralSize),...u32(offset),...u16(0)]);
-  return new Blob([...parts,...central,end],{type:'application/zip'});
+ const enc=new TextEncoder(),parts=[],central=[];let offset=0;const now=dateToDos(new Date());
+ for(const f of files){
+  const nameBytes=enc.encode(f.name),data=f.data instanceof Uint8Array?f.data:new Uint8Array(await f.data.arrayBuffer()),crc=crc32(data);
+  const local=new Uint8Array([...u32(0x04034b50),...u16(20),...u16(0x0800),...u16(0),...u16(now.time),...u16(now.date),...u32(crc),...u32(data.length),...u32(data.length),...u16(nameBytes.length),...u16(0)]);
+  parts.push(local,nameBytes,data);
+  const ch=new Uint8Array([...u32(0x02014b50),...u16(20),...u16(20),...u16(0x0800),...u16(0),...u16(now.time),...u16(now.date),...u32(crc),...u32(data.length),...u32(data.length),...u16(nameBytes.length),...u16(0),...u16(0),...u16(0),...u16(0),...u32(0),...u32(offset)]);
+  central.push(ch,nameBytes);offset+=local.length+nameBytes.length+data.length;
+ }
+ const centralSize=central.reduce((s,p)=>s+p.length,0);
+ const end=new Uint8Array([...u32(0x06054b50),...u16(0),...u16(0),...u16(files.length),...u16(files.length),...u32(centralSize),...u32(offset),...u16(0)]);
+ return new Blob([...parts,...central,end],{type:'application/zip'});
 }
-
-async function downloadTestZip(){
-  if(testSamples.length===0){
-    setDirectionUI(currentVisualDirection||'-','Ei tallennettuja testikuvia.');
-    return;
-  }
-  const metadata={
-    sessionId:testSessionId,
-    createdAt:new Date().toISOString(),
-    appVersion:'v15',
-    sampleCount:testSamples.length,
-    samples:testSamples.map(s=>s.meta)
-  };
-  const files=[
-    {name:'metadata.json',data:new TextEncoder().encode(JSON.stringify(metadata,null,2))},
-    ...testSamples.map(s=>({name:s.fileName,data:s.blob}))
-  ];
-  const zip=await makeZip(files);
-  const url=URL.createObjectURL(zip);
-  const a=document.createElement('a');
-  a.href=url;
-  a.download=`polkuopas_testikuvat_${testSessionId}.zip`;
-  document.body.appendChild(a);
-  a.click();
-  a.remove();
-  setTimeout(()=>URL.revokeObjectURL(url),1500);
-  setDirectionUI(currentVisualDirection||'-',`ZIP ladattu (${testSamples.length} kuvaa).`);
+async function createTestZip(){
+ const metadata={sessionId:testSessionId,createdAt:new Date().toISOString(),appVersion:'v16',sampleCount:testSamples.length,samples:testSamples.map(s=>s.meta)};
+ const files=[{name:'metadata.json',data:new TextEncoder().encode(JSON.stringify(metadata,null,2))},...testSamples.map(s=>({name:s.fileName,data:s.blob}))];
+ return makeZip(files);
 }
-
+async function shareTestZip(){
+ if(testSamples.length===0){setDirectionUI(currentVisualDirection||'-','Ei tallennettuja testikuvia.');return;}
+ const zip=await createTestZip(),fileName=`polkuopas_testikuvat_${testSessionId}.zip`,file=new File([zip],fileName,{type:'application/zip'});
+ if(navigator.canShare&&navigator.canShare({files:[file]})&&navigator.share){
+  try{await navigator.share({files:[file],title:'Polkuopas testikuvat',text:`Polkuopas-testikuvat (${testSamples.length} kuvaa)`});setDirectionUI(currentVisualDirection||'-',`ZIP jaettu (${testSamples.length} kuvaa).`);return;}
+  catch(e){if(e&&e.name==='AbortError'){setDirectionUI(currentVisualDirection||'-','Jakaminen peruttu.');return;}console.warn('Jako epäonnistui, käytetään latausta:',e);}
+ }
+ const url=URL.createObjectURL(zip),a=document.createElement('a');a.href=url;a.download=fileName;document.body.appendChild(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(url),1500);setDirectionUI(currentVisualDirection||'-',`ZIP ladattu (${testSamples.length} kuvaa).`);
+}
 
 // ── Event listeners ───────────────────────────────────────────────────────
 startButton.addEventListener('click',startCamera);
 stopButton.addEventListener('click',stopCamera);
 resetButton.addEventListener('click',resetHistory);
-saveTestImageButton.addEventListener('click',saveTestImage);
-downloadTestZipButton.addEventListener('click',downloadTestZip);
+saveTestImageButton.addEventListener('click',openTestCapturePanel);
+downloadTestZipButton.addEventListener('click',shareTestZip);
+confirmTestImageButton.addEventListener('click',saveTestImageWithCurrentForm);
+cancelTestImageButton.addEventListener('click',closeTestCapturePanel);
 audioTestButton.addEventListener('click',()=>{
   ensureAudio();
   playBeep(-1,1,'guide');
