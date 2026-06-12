@@ -4,7 +4,7 @@
   <meta charset="utf-8"/>
   <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"/>
   <meta name="theme-color" content="#0f172a"/>
-  <title>Polkuopas – v16</title>
+  <title>Polkuopas – v17</title>
   <style>
     :root{
       --bg:#0f172a;--panel:#111827;--panel2:#1f2937;
@@ -228,7 +228,7 @@ const modeForest=$('modeForest'),modeGravel=$('modeGravel'),modeAsphalt=$('modeA
 let stream=null,animationId=null,audioCtx=null,lastBeepMs=0,lastAnalysisMs=0,running=false;
 let selectedMode='forest',history=[],emaOffset=0,emaInitialized=false;let testSamples=[],testSessionId=new Date().toISOString().replace(/[:.]/g,'-'),latestState={},selectedTestLabelCode='turha_suojatiehavainto';
 let currentVisualDirection='',currentVisualMessage='',lastVoiceOverDirection='',lastVoiceOverMs=0;
-let crosswalkVisible=false,lastCrosswalkEventMs=0,crosswalkStreak=0,crosswalkMissStreak=0;
+let crosswalkVisible=false,lastCrosswalkEventMs=0,crosswalkStreak=0,crosswalkMissStreak=0,crosswalkRecent=[];
 let obstacleStreak=0,lastCandidateObstacle='',lastObstacleDirection='',lastObstacleAlertMs=0;
 
 // ── Collapsible panels ────────────────────────────────────────────────────
@@ -585,8 +585,18 @@ function detectCrosswalk(data,w,h){
     - kuvan alin osa jätetään pois, jotta valkoinen keppi ei aiheuttaisi hälyjä
   */
   const xMin=Math.floor(w*.06),xMax=Math.floor(w*.94);
-  const yMin=Math.floor(h*.28),yMax=Math.floor(h*.84); // v14: ei alinta 16 %
+  const yMin=Math.floor(h*.28),yMax=Math.floor(h*.90); // v17: jätetään alin 10 %, jotta lähellä oleva suojatie ehtii mukaan
   const minLineWidth=w*.44; // hieman kevyempi, koska mukana kulmakriteeri
+  let roadLumSum=0,roadLumCount=0;
+  for(let ry=Math.floor(h*.55);ry<Math.floor(h*.90);ry+=3){
+    for(let rx=xMin;rx<xMax;rx+=6){
+      const p=(ry*w+rx)*4,r=data[p],g=data[p+1],b=data[p+2];
+      const lum=.2126*r+.7152*g+.0722*b;
+      const sat=Math.max(r,g,b)-Math.min(r,g,b);
+      if(sat<65){roadLumSum+=lum;roadLumCount++;}
+    }
+  }
+  const roadBaseLum=roadLumCount?roadLumSum/roadLumCount:115;
   const rows=[];
 
   for(let y=yMin;y<=yMax;y+=2){
@@ -596,7 +606,7 @@ function detectCrosswalk(data,w,h){
       const lum=.2126*r+.7152*g+.0722*b,sat=Math.max(r,g,b)-Math.min(r,g,b);
       const lU=lumAt(data,w,h,x,y-2),lD=lumAt(data,w,h,x,y+2);
       const contrast=lum-(lU+lD)/2;
-      if(lum>180&&sat<48&&contrast>-10){
+      if(lum>170&&sat<56&&contrast>-14&&lum>roadBaseLum+28){
         count++;sumX+=x;minX=Math.min(minX,x);maxX=Math.max(maxX,x);
       }
     }
@@ -712,6 +722,35 @@ function detectCrosswalk(data,w,h){
   }
 
   return{detected:confidence>.62,confidence,direction,slope,lineCount:lines.length};
+}
+
+
+function detectNearVerticalSurface(data,w,h){
+  const y1=Math.floor(h*.36),y2=Math.floor(h*.88);
+  const x1=Math.floor(w*.20),x2=Math.floor(w*.80);
+  let flatCount=0,edgeCount=0,total=0,lowerNonPath=0,lowerTotal=0;
+  for(let y=y1;y<y2;y+=3){
+    for(let x=x1;x<x2;x+=3){
+      const p=(y*w+x)*4,r=data[p],g=data[p+1],b=data[p+2];
+      const lum=.2126*r+.7152*g+.0722*b;
+      const sat=Math.max(r,g,b)-Math.min(r,g,b);
+      const px=(y*w+Math.min(w-1,x+3))*4,py=(Math.min(h-1,y+3)*w+x)*4;
+      const lumx=.2126*data[px]+.7152*data[px+1]+.0722*data[px+2];
+      const lumy=.2126*data[py]+.7152*data[py+1]+.0722*data[py+2];
+      const grad=Math.abs(lum-lumx)+Math.abs(lum-lumy);
+      if(sat<55&&grad<34)flatCount++;
+      if(grad>55)edgeCount++;
+      total++;
+      if(y>h*.70){
+        lowerTotal++;
+        if(!(sat<70&&lum>55&&lum<205))lowerNonPath++;
+      }
+    }
+  }
+  if(!total||!lowerTotal)return{detected:false,score:0};
+  const flat=flatCount/total,edges=edgeCount/total,lowerBlocked=lowerNonPath/lowerTotal;
+  const score=flat*.45+edges*.20+lowerBlocked*.35;
+  return{detected:score>.58&&flat>.38&&lowerBlocked>.45,score,flat,edges,lowerBlocked};
 }
 
 // ── Esteentunnistus// ── Esteentunnistus ───────────────────────────────────────────────────────
@@ -867,12 +906,18 @@ function updateObstacleState(obstacle){
 
 function updateCrosswalkState(cw){
   const candidate=!!(cw&&cw.detected);
-  if(candidate){crosswalkStreak++;crosswalkMissStreak=0;}
-  else{crosswalkMissStreak++;crosswalkStreak=0;}
-  const confirmed=crosswalkStreak>=4; // tiukennettu: 3 → 4 peräkkäistä
+  crosswalkRecent.push(candidate?1:0);
+  if(crosswalkRecent.length>5)crosswalkRecent.shift();
+
+  if(candidate)crosswalkMissStreak=0;
+  else crosswalkMissStreak++;
+
+  crosswalkStreak=crosswalkRecent.reduce((a,b)=>a+b,0);
+  const confirmed=crosswalkStreak>=3; // v17: 3 havaintoa viimeisestä 5 ruudusta
   const ended=crosswalkVisible&&crosswalkMissStreak>=5;
-  crosswalkValue.textContent=confirmed?'havaittu '+Math.round(cw.confidence*100)+' %':'ei havaittu';
-  crosswalkBar.style.width=confirmed?Math.min(100,cw.confidence*100)+'%':'0%';
+
+  crosswalkValue.textContent=confirmed?'havaittu '+Math.round((cw&&cw.confidence?cw.confidence:0)*100)+' %':'ei havaittu';
+  crosswalkBar.style.width=confirmed?Math.min(100,(cw&&cw.confidence?cw.confidence:0)*100)+'%':'0%';
   const now=performance.now();
   if(confirmed&&!crosswalkVisible&&now-lastCrosswalkEventMs>1400){
     crosswalkVisible=true;lastCrosswalkEventMs=now;
@@ -966,6 +1011,16 @@ function analyzeFrame(){
   const obstacle=obstacleEnabled.checked
     ?detectObstacle(data,analysisW,analysisH,selectedMode,result)
     :{detected:false,confidence:0,position:null,freeColumn:null};
+  if(obstacleEnabled.checked){
+    const nearVertical=detectNearVerticalSurface(data,analysisW,analysisH);
+    if(nearVertical.detected){
+      obstacle.detected=true;
+      obstacle.position='center';
+      obstacle.freeColumn=null;
+      obstacle.confidence=Math.max(obstacle.confidence||0,nearVertical.score);
+      obstacle.nearVertical=true;
+    }
+  }
   updateObstacleState(obstacle);
   updateGuidance(result,cw,obstacle);
 }
@@ -1005,7 +1060,7 @@ async function saveTestImageWithCurrentForm(){
  const blob=await canvasToBlob(c,'image/jpeg',.88);
  if(!blob){setDirectionUI(currentVisualDirection||'-','Testikuvaa ei voitu tallentaa.');return;}
  const num=String(testSamples.length+1).padStart(3,'0'),safeLabel=label.code.replace(/[^a-z0-9_äöå-]/gi,'_'),fileName=`images/${num}_${safeLabel}.jpg`;
- const meta={sampleNumber:testSamples.length+1,fileName,labelCode:label.code,label:label.label,note:label.note,capturedAt:new Date().toISOString(),sessionId:testSessionId,appVersion:'v16',videoWidth:vw,videoHeight:vh,savedWidth:outW,savedHeight:outH,latestState:{...latestState}};
+ const meta={sampleNumber:testSamples.length+1,fileName,labelCode:label.code,label:label.label,note:label.note,capturedAt:new Date().toISOString(),sessionId:testSessionId,appVersion:'v17',videoWidth:vw,videoHeight:vh,savedWidth:outW,savedHeight:outH,latestState:{...latestState}};
  testSamples.push({fileName,blob,meta});testNoteInput.value='';closeTestCapturePanel();setDirectionUI(currentVisualDirection||'-',`Testikuva tallennettu (${testSamples.length}).`);
 }
 function crc32Table(){const table=[];for(let n=0;n<256;n++){let c=n;for(let k=0;k<8;k++)c=((c&1)?(0xedb88320^(c>>>1)):(c>>>1));table[n]=c>>>0;}return table;}
@@ -1028,7 +1083,7 @@ async function makeZip(files){
  return new Blob([...parts,...central,end],{type:'application/zip'});
 }
 async function createTestZip(){
- const metadata={sessionId:testSessionId,createdAt:new Date().toISOString(),appVersion:'v16',sampleCount:testSamples.length,samples:testSamples.map(s=>s.meta)};
+ const metadata={sessionId:testSessionId,createdAt:new Date().toISOString(),appVersion:'v17',sampleCount:testSamples.length,samples:testSamples.map(s=>s.meta)};
  const files=[{name:'metadata.json',data:new TextEncoder().encode(JSON.stringify(metadata,null,2))},...testSamples.map(s=>({name:s.fileName,data:s.blob}))];
  return makeZip(files);
 }
